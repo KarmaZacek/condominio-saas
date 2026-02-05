@@ -1,7 +1,7 @@
 """
 Modelos de base de datos SQLAlchemy.
 """
-
+import uuid
 import enum
 from datetime import datetime, date
 from decimal import Decimal
@@ -9,6 +9,7 @@ from typing import Optional, List
 from uuid import uuid4
 
 from sqlalchemy import (
+    Column,  # <--- ¡ESTO ES LO QUE FALTA!
     String, Text, Boolean, Integer, DateTime, Date,
     Numeric, ForeignKey, Enum, JSON, Index, CheckConstraint,
     func
@@ -17,6 +18,23 @@ from sqlalchemy.dialects.postgresql import UUID, INET, JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
+
+class Condominium(Base):
+    __tablename__ = "condominiums"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    name = Column(String, nullable=False)
+    address = Column(String, nullable=True)
+    logo_url = Column(String, nullable=True)
+    plan_type = Column(String, default="basic") # free, pro, enterprise
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    # Relaciones (Un condominio tiene muchos...)
+    users = relationship("User", back_populates="condominium", cascade="all, delete-orphan")
+    units = relationship("Unit", back_populates="condominium", cascade="all, delete-orphan")
+    transactions = relationship("Transaction", back_populates="condominium", cascade="all, delete-orphan")
+    categories = relationship("Category", back_populates="condominium", cascade="all, delete-orphan")
 
 class UserRole(str, enum.Enum):
     ADMIN = "admin"
@@ -122,7 +140,9 @@ class User(Base):
         nullable=True,
         index=True
     )
-
+    # --- NUEVO: Vínculo al Condominio ---
+    condominium_id = Column(UUID(as_uuid=True), ForeignKey("condominiums.id"), nullable=False)
+    condominium = relationship("Condominium", back_populates="users")
     # Relaciones
     units: Mapped[List["Unit"]] = relationship(
         "Unit",
@@ -194,7 +214,9 @@ class Unit(Base):
         server_default=func.now(),
         onupdate=func.now()
     )
-    
+    # --- NUEVO: Vínculo al Condominio ---
+    condominium_id = Column(UUID(as_uuid=True), ForeignKey("condominiums.id"), nullable=False)
+    condominium = relationship("Condominium", back_populates="units")
     # Relaciones
     owner: Mapped[Optional["User"]] = relationship(
         "User",
@@ -256,13 +278,15 @@ class Category(Base):
         server_default=func.now(),
         onupdate=func.now()
     )
-    
+    # --- NUEVO: Vínculo al Condominio ---
+    condominium_id = Column(UUID(as_uuid=True), ForeignKey("condominiums.id"), nullable=False)
+    condominium = relationship("Condominium", back_populates="categories")
     # Relaciones
     transactions: Mapped[List["Transaction"]] = relationship(
         "Transaction",
         back_populates="category"
     )
-    
+        
     __table_args__ = (
         Index("idx_categories_active", "is_active", postgresql_where=is_active == True),
     )
@@ -342,7 +366,9 @@ class Transaction(Base):
         server_default=func.now(),
         onupdate=func.now()
     )
-    
+    condominium_id = Column(UUID(as_uuid=True), ForeignKey("condominiums.id"), nullable=False)
+    condominium = relationship("Condominium", back_populates="transactions")
+
     # Relaciones
     unit: Mapped[Optional["Unit"]] = relationship(
         "Unit",
