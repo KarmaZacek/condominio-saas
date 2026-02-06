@@ -19,6 +19,7 @@ from app.core.config import settings
 # SQLAlchemy Async requiere estrictamente "postgresql+asyncpg://".
 # -------------------------------------------------------------------
 
+
 # 1. Leemos la URL original
 database_url = settings.DATABASE_URL
 

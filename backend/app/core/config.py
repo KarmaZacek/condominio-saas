@@ -23,7 +23,7 @@ class Settings(BaseSettings):
     PORT: int = 8000
     
     # Database
-    DATABASE_URL: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/condominios"
+    DATABASE_URL: str = "postgresql://postgres:yVilPekRhvFSsKkZdzEDHzKzMNqinHqc@yamanote.proxy.rlwy.net:54160/railway"
     DB_POOL_SIZE: int = 10
     DB_MAX_OVERFLOW: int = 20
     
@@ -31,7 +31,7 @@ class Settings(BaseSettings):
     REDIS_URL: str = "redis://localhost:6379/0"
     
     # JWT
-    JWT_SECRET_KEY: str = "your-super-secret-key-change-in-production"
+    JWT_SECRET_KEY: str = "mi_clave_secreta_super_segura_2024"
     JWT_ALGORITHM: str = "HS256"
     JWT_ACCESS_TOKEN_EXPIRE_MINUTES: int = 15
     JWT_REFRESH_TOKEN_EXPIRE_DAYS: int = 7
