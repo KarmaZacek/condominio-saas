@@ -158,10 +158,10 @@ app = FastAPI(
 # Middlewares
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.allowed_origins_list,
+    allow_origins=["*"],  # "*" significa: Permitir a TODOS (móvil, web, etc.)
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["*"],  # Permitir todos los métodos (GET, POST, etc.)
+    allow_headers=["*"],  # Permitir todos los encabezados
 )
 
 # ==========================================
