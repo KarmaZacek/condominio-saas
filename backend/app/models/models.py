@@ -29,6 +29,8 @@ class Condominium(Base):
     plan_type = Column(String, default="basic") # free, pro, enterprise
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+    default_monthly_fee = Column(Numeric(10, 2), default=0.00) # Nueva columna para la cuota general
+    is_setup_completed = Column(Boolean, default=False) # ¡CLAVE! Para saber si mostrar el Wizard
 
     # Relaciones (Un condominio tiene muchos...)
     users = relationship("User", back_populates="condominium", cascade="all, delete-orphan")

@@ -18,7 +18,7 @@ from apscheduler.triggers.cron import CronTrigger
 from app.core.config import settings
 from app.core.database import close_db, init_db
 from app.core.redis import redis_client
-from app.api.routes import auth, transactions, units, categories, users, reports, audit
+from app.api.routes import auth, transactions, units, categories, users, reports, audit, condominiums
 from app.api.financial_status import router as financial_status_router
 from app.middleware.auth import get_current_user, require_role, AuthenticatedUser
 from app.services.automation import generate_monthly_fees_job
@@ -203,6 +203,7 @@ async def global_exception_handler(request: Request, exc: Exception):
 app.include_router(auth.router, prefix="/v1")
 app.include_router(users.router, prefix="/v1")
 app.include_router(units.router, prefix="/v1")
+app.include_router(condominiums.router, prefix="/v1/condominiums", tags=["condominiums"])
 app.include_router(categories.router, prefix="/v1")
 app.include_router(transactions.router, prefix="/v1")
 app.include_router(reports.router, prefix="/v1")
