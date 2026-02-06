@@ -16,6 +16,30 @@ class CondoSetupRequest(BaseModel):
     default_monthly_fee: float = Field(..., gt=0, description="Cuota de mantenimiento base")
     total_units: int = Field(..., gt=0, le=500, description="Cantidad total de viviendas")
 
+@router.get("/setup/status")
+async def get_setup_status(
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Devuelve el estado de configuración del condominio del usuario actual.
+    """
+    if not current_user.condominium_id:
+        return {"is_setup_completed": False, "condominium": None}
+    
+    condo = db.query(Condominium).filter(Condominium.id == current_user.condominium_id).first()
+    
+    if not condo:
+        return {"is_setup_completed": False, "condominium": None}
+
+    return {
+        "is_setup_completed": condo.is_setup_completed,
+        "condominium": {
+            "id": condo.id,
+            "name": condo.name
+        }
+    }
+
 # --- 2. EL ENDPOINT MAGICO (/setup/initial) ---
 @router.post("/setup/initial", response_model=Any)
 async def initial_setup(
