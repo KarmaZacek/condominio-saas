@@ -21,24 +21,28 @@ async def get_setup_status(
     current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db),
 ):
-    """
-    Devuelve el estado de configuración del condominio del usuario actual.
-    """
-    if not current_user.condominium_id:
-        return {"is_setup_completed": False, "condominium": None}
-    
-    condo = db.query(Condominium).filter(Condominium.id == current_user.condominium_id).first()
-    
-    if not condo:
-        return {"is_setup_completed": False, "condominium": None}
+    try:
+        # 1. Validar si el usuario tiene condominio ID
+        if not current_user.condominium_id:
+            return {"is_setup_completed": False, "condominium": None}
+        
+        # 2. Buscar el condominio en la BD
+        condo = db.query(Condominium).filter(Condominium.id == current_user.condominium_id).first()
+        
+        if not condo:
+            return {"is_setup_completed": False, "condominium": None}
 
-    return {
-        "is_setup_completed": condo.is_setup_completed,
-        "condominium": {
-            "id": condo.id,
-            "name": condo.name
+        # 3. Retornar respuesta (CONVIRTIENDO EL UUID A STRING)
+        return {
+            "is_setup_completed": condo.is_setup_completed, 
+            "condominium": {
+                "id": str(condo.id),    # <--- ¡ESTA ES LA CLAVE! Agregar str()
+                "name": condo.name
+            }
         }
-    }
+    except Exception as e:
+        print(f"❌ CRASH en get_setup_status: {e}") # Esto saldrá en los logs de Railway
+        raise HTTPException(status_code=500, detail=f"Error interno: {str(e)}")
 
 # --- 2. EL ENDPOINT MAGICO (/setup/initial) ---
 @router.post("/setup/initial", response_model=Any)
