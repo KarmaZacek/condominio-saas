@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
+from sqlalchemy import select
 from typing import Any
 from pydantic import BaseModel, Field
 
@@ -22,44 +23,44 @@ async def get_setup_status(
     current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db),
 ):
-    print(f"👀 Verificando status para usuario: {current_user.email}") # Log de depuración
+    print(f"👀 Verificando status para usuario: {current_user.email}")
     
     try:
-        # 1. Si el usuario no tiene condominio asignado
+        # 1. Validar si el usuario tiene condominio
         if not current_user.condominium_id:
-            print("ℹ️ Usuario sin condominio_id")
             return {"is_setup_completed": False, "condominium": None}
         
-        # 2. Buscar condominio
-        condo = db.query(Condominium).filter(Condominium.id == current_user.condominium_id).first()
+        # 2. Buscar condominio (VERSIÓN ASYNC CORREGIDA) 🚑
+        # Antes fallaba aquí con db.query(...)
+        result = await db.execute(select(Condominium).filter(Condominium.id == current_user.condominium_id))
+        condo = result.scalars().first()
         
         if not condo:
-            print("⚠️ Condominio ID existe en usuario pero no en tabla Condominiums")
+            print("⚠️ Condominio ID en usuario, pero no en tabla Condominiums")
             return {"is_setup_completed": False, "condominium": None}
 
-        # 3. Extracción segura de datos (usando getattr por si la columna no existe)
+        # 3. Extraer datos de forma segura
+        # Usamos getattr por si la columna no existe en migraciones viejas
         is_completed = getattr(condo, "is_setup_completed", False)
-        condo_name = getattr(condo, "name", "Condominio")
-        condo_id = str(condo.id)
+        
+        # IMPORTANTE: Convertir UUID a string para que no falle el JSON
+        condo_data = {
+            "id": str(condo.id),
+            "name": condo.name
+        }
 
-        print(f"✅ Status encontrado: {is_completed}")
+        print(f"✅ Status encontrado en BD: {is_completed}")
 
         return {
             "is_setup_completed": is_completed, 
-            "condominium": {
-                "id": condo_id,
-                "name": condo_name
-            }
+            "condominium": condo_data
         }
 
     except Exception as e:
-        # Imprimir el error real en Railway para que lo leamos
         import traceback
         traceback.print_exc()
-        print(f"❌ CRASH REAL: {e}")
-        
-        # En lugar de dar error 500, devolvemos False para dejar pasar al usuario al Home
-        # (Es mejor que entre al Dashboard a que se quede bloqueado)
+        print(f"❌ CRASH REAL EN STATUS: {e}")
+        # Si falla, devolvemos False por seguridad
         return {"is_setup_completed": False, "condominium": None}
 
 # --- 2. EL ENDPOINT MAGICO (/setup/initial) ---
