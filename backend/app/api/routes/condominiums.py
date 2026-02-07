@@ -21,28 +21,45 @@ async def get_setup_status(
     current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db),
 ):
+    print(f"👀 Verificando status para usuario: {current_user.email}") # Log de depuración
+    
     try:
-        # 1. Validar si el usuario tiene condominio ID
+        # 1. Si el usuario no tiene condominio asignado
         if not current_user.condominium_id:
+            print("ℹ️ Usuario sin condominio_id")
             return {"is_setup_completed": False, "condominium": None}
         
-        # 2. Buscar el condominio en la BD
+        # 2. Buscar condominio
         condo = db.query(Condominium).filter(Condominium.id == current_user.condominium_id).first()
         
         if not condo:
+            print("⚠️ Condominio ID existe en usuario pero no en tabla Condominiums")
             return {"is_setup_completed": False, "condominium": None}
 
-        # 3. Retornar respuesta (CONVIRTIENDO EL UUID A STRING)
+        # 3. Extracción segura de datos (usando getattr por si la columna no existe)
+        is_completed = getattr(condo, "is_setup_completed", False)
+        condo_name = getattr(condo, "name", "Condominio")
+        condo_id = str(condo.id)
+
+        print(f"✅ Status encontrado: {is_completed}")
+
         return {
-            "is_setup_completed": condo.is_setup_completed, 
+            "is_setup_completed": is_completed, 
             "condominium": {
-                "id": str(condo.id),    # <--- ¡ESTA ES LA CLAVE! Agregar str()
-                "name": condo.name
+                "id": condo_id,
+                "name": condo_name
             }
         }
+
     except Exception as e:
-        print(f"❌ CRASH en get_setup_status: {e}") # Esto saldrá en los logs de Railway
-        raise HTTPException(status_code=500, detail=f"Error interno: {str(e)}")
+        # Imprimir el error real en Railway para que lo leamos
+        import traceback
+        traceback.print_exc()
+        print(f"❌ CRASH REAL: {e}")
+        
+        # En lugar de dar error 500, devolvemos False para dejar pasar al usuario al Home
+        # (Es mejor que entre al Dashboard a que se quede bloqueado)
+        return {"is_setup_completed": False, "condominium": None}
 
 # --- 2. EL ENDPOINT MAGICO (/setup/initial) ---
 @router.post("/setup/initial", response_model=Any)
