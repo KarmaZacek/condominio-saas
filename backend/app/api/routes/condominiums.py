@@ -113,7 +113,7 @@ async def initial_setup(
                     unit_number=str(i),
                     monthly_fee=setup_data.default_monthly_fee,
                     condominium_id=condo.id,
-                    status="ACTIVE"
+                    status="VACANT"
                 )
                 db.add(unit) # En AsyncSession se usa db.add igual
             
