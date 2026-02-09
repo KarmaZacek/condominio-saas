@@ -283,7 +283,14 @@ class TransactionService:
         )
         return result.scalars().first()
     
-    async def create_transaction(self, data: TransactionCreate, created_by: str) -> TransactionWithBalance:
+    # 1. ACTUALIZAR la definición de la función para recibir condominium_id
+    async def create_transaction(
+        self, 
+        data: TransactionCreate, 
+        created_by: str,
+        condominium_id: str  # <--- NUEVO ARGUMENTO
+    ) -> TransactionWithBalance:
+        
         category = await self._get_category(data.category_id)
         if not category: raise ValueError("CATEGORY_NOT_FOUND")
         if category.type != data.type: raise ValueError("CATEGORY_TYPE_MISMATCH")
@@ -304,13 +311,22 @@ class TransactionService:
         
         is_advance, is_late = classify_payment(fiscal_period, data.transaction_date)
         
+        # 2. ASIGNAR condominium_id al objeto Transaction
         transaction = Transaction(
-            type=data.type, amount=data.amount, description=data.description,
-            transaction_date=data.transaction_date, category_id=data.category_id,
-            unit_id=data.unit_id, payment_method=data.payment_method,
-            reference_number=data.reference_number, notes=data.notes,
-            fiscal_period=fiscal_period, is_advance_payment=is_advance,
-            is_late_payment=is_late, created_by=created_by,
+            type=data.type, 
+            amount=data.amount, 
+            description=data.description,
+            transaction_date=data.transaction_date, 
+            category_id=data.category_id,
+            unit_id=data.unit_id, 
+            payment_method=data.payment_method,
+            reference_number=data.reference_number, 
+            notes=data.notes,
+            fiscal_period=fiscal_period, 
+            is_advance_payment=is_advance,
+            is_late_payment=is_late, 
+            created_by=created_by,
+            condominium_id=condominium_id,  # <--- AQUÍ SE ASIGNA EL VALOR 🔑
             status=TransactionStatus.CONFIRMED
         )
         
@@ -323,7 +339,10 @@ class TransactionService:
             new_balance = unit.balance
         
         await self.db.flush()
+        
+        # Recargamos las relaciones para devolver la respuesta completa
         await self.db.refresh(transaction, ["category", "unit", "created_by_user"])
+        
         return TransactionWithBalance(transaction=self._to_response(transaction), unit_new_balance=new_balance)
     
     async def update_transaction(self, transaction_id: str, data: TransactionUpdate) -> TransactionResponse:

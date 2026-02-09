@@ -10,7 +10,8 @@ from fastapi import APIRouter, Depends, HTTPException, status, Query, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.models.models import CategoryType, TransactionStatus, PaymentMethod, AuditLog, AuditAction
+from app.models.models import CategoryType, TransactionStatus, PaymentMethod, AuditLog, AuditAction, User
+from app.services.audit_service import log_audit
 from app.schemas.entities import (
     TransactionCreate, TransactionUpdate, TransactionResponse,
     TransactionListResponse, TransactionWithBalance
@@ -193,26 +194,28 @@ async def get_transaction(
     return service._to_response(transaction)
 
 
-@router.post(
-    "",
-    response_model=TransactionWithBalance,
-    status_code=status.HTTP_201_CREATED,
-    summary="Crear transacción"
-)
+@router.post("/", response_model=TransactionResponse)
 async def create_transaction(
     data: TransactionCreate,
-    current_user: AuthenticatedUser = Depends(require_role("admin")),
+    # 1. CAMBIO: Usamos get_current_active_user para obtener el objeto completo con datos del condominio
+    current_user: User = Depends(get_current_active_user), 
     db: AsyncSession = Depends(get_db)
 ):
     """
     Crea una nueva transacción.
     """
+    # 2. VALIDACIÓN DE ROL: Como quitamos require_role, validamos aquí
+    if current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="No tienes permisos de administrador")
+
     service = get_transaction_service(db)
     
     try:
+        # 3. LLAMADA AL SERVICIO: Pasamos el condominium_id explícitamente
         result = await service.create_transaction(
             data=data,
-            created_by=current_user.id
+            created_by=current_user.id,
+            condominium_id=current_user.condominium_id  # <--- ¡LA SOLUCIÓN ESTÁ AQUÍ! ✅
         )
         
         # Registrar auditoría
@@ -220,27 +223,29 @@ async def create_transaction(
             db=db,
             user_id=current_user.id,
             action=AuditAction.CREATE,
-            entity_id=result.transaction.id,
+            entity_id=result.id, # Ojo: Verifica si result es el objeto Transaction o un envoltorio
             new_values={
                 "type": data.type.value,
                 "amount": str(data.amount),
                 "description": data.description,
-                "unit_id": data.unit_id,
-                "category_id": data.category_id,
-                "fiscal_period": data.fiscal_period
+                "unit_id": str(data.unit_id) if data.unit_id else None,
+                "category_id": str(data.category_id),
+                "fiscal_period": data.fiscal_period,
+                "condominium_id": str(current_user.condominium_id)
             }
         )
         await db.commit()
         
         return result
+
     except ValueError as e:
-        if str(e) == "DUPLICATE_PAYMENT_SAME_PERIOD":
+        error_msg = str(e)
+        if error_msg == "DUPLICATE_PAYMENT_SAME_PERIOD":
             raise HTTPException(
                 status_code=400,
                 detail="DUPLICATE_PAYMENT_SAME_PERIOD"
             )
         
-        error = str(e)
         error_messages = {
             "CATEGORY_NOT_FOUND": "Categoría no encontrada",
             "CATEGORY_TYPE_MISMATCH": "El tipo de categoría no coincide",
@@ -251,8 +256,8 @@ async def create_transaction(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail={
-                "error": error,
-                "message": error_messages.get(error, "Error de validación")
+                "error": error_msg,
+                "message": error_messages.get(error_msg, f"Error de validación: {error_msg}")
             }
         )
 
