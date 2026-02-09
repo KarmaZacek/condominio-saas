@@ -4,6 +4,10 @@ from sqlalchemy.future import select
 from app.models.models import User
 from app.core.database import get_db
 from app.middleware.auth import get_current_user
+from app.services.user_service import UserService
+
+def get_user_service(db: AsyncSession = Depends(get_db)) -> UserService:
+    return UserService(db)
 
 async def get_current_active_user(
     current_user = Depends(get_current_user), # Objeto ligero del token
