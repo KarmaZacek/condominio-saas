@@ -115,8 +115,9 @@ async def initial_setup(
                     condominium_id=condo.id,
                     status="VACANT"
                 )
-                db.add(unit) # En AsyncSession se usa db.add igual
-            
+                new_units.append(unit) # 2. Agregamos a la lista (NO a la db todavía)
+            # 3. Insertamos las 70 casas de una sola vez fuera del bucle
+            db.add_all(new_units)
             print("✅ Unidades añadidas a la sesión")
         else:
             print("ℹ️ Las unidades ya existían, saltando creación.")
