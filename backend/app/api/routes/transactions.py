@@ -228,7 +228,7 @@ async def create_transaction(
             db=db,
             user_id=current_user.id,
             action=AuditAction.CREATE,
-            entity_id=result.id, # Ojo: Verifica si result es el objeto Transaction o un envoltorio
+            entity_id=result.transaction.id, # <-- CORREGIDO: Accedemos al objeto interno
             new_values={
                 "type": data.type.value,
                 "amount": str(data.amount),
