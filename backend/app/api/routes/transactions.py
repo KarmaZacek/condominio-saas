@@ -17,11 +17,16 @@ from app.schemas.entities import (
     TransactionListResponse, TransactionWithBalance
 )
 from app.services.transaction_service import TransactionService, get_transaction_service
+
+# --- AQUÍ ESTÁ EL CAMBIO CLAVE ---
+# Agregamos la importación desde 'app.api.deps'
+from app.api.deps import get_current_active_user 
+
+# Mantenemos tus imports de auth por si otras rutas los usan
 from app.middleware.auth import (
     get_current_user, AuthenticatedUser, 
     require_role, require_permission
 )
-
 
 router = APIRouter(prefix="/transactions", tags=["Transacciones"])
 
