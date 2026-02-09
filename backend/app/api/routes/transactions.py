@@ -524,6 +524,12 @@ async def get_receipt(
     "/{transaction_id}/receipt/pdf",
     summary="Generar recibo de pago PDF"
 )
+# Reemplazar la función existente 'generate_receipt_pdf' al final de transactions.py
+
+@router.get(
+    "/{transaction_id}/receipt/pdf",
+    summary="Generar recibo de pago PDF"
+)
 async def generate_receipt_pdf(
     transaction_id: str,
     current_user: AuthenticatedUser = Depends(get_current_user),
@@ -536,8 +542,10 @@ async def generate_receipt_pdf(
     from app.services.receipt_service import generate_receipt_pdf, generate_folio
     from sqlalchemy import select
     from sqlalchemy.orm import selectinload
-    from app.models.models import Transaction, Unit, User, Category, CategoryType, BoardPosition, UserRole
+    # IMPORTANTE: Asegúrate que Condominium esté importado o agrégalo aquí
+    from app.models.models import Transaction, Unit, User, Category, CategoryType, BoardPosition, UserRole, Condominium
     
+    # 1. Recuperar Transacción
     result = await db.execute(
         select(Transaction)
         .options(
@@ -561,6 +569,7 @@ async def generate_receipt_pdf(
             detail={"error": "INVALID_TRANSACTION_TYPE", "message": "Solo se pueden generar recibos para pagos (ingresos)"}
         )
     
+    # Verificación de seguridad para residentes
     if current_user.role == "resident":
         if not transaction.unit_id or str(transaction.unit_id) != str(current_user.unit_id or ''):
             raise HTTPException(
@@ -568,58 +577,65 @@ async def generate_receipt_pdf(
                 detail={"error": "FORBIDDEN", "message": "No tienes acceso a este recibo"}
             )
     
+    # 2. Recuperar Datos del Condominio
+    condominium_data = {}
+    if transaction.condominium_id:
+        condo_result = await db.execute(select(Condominium).where(Condominium.id == transaction.condominium_id))
+        condo = condo_result.scalar_one_or_none()
+        if condo:
+            condominium_data = {
+                "name": condo.name,
+                "address": condo.address or "Dirección no registrada",
+                "logo_url": condo.logo_url
+            }
+    
+    # Datos complementarios (Residente, Tesorero, etc.)
     unit_number = transaction.unit.unit_number if transaction.unit else None
     
     resident_name = None
     if transaction.unit and transaction.unit.owner_user_id:
-        owner_result = await db.execute(
-            select(User).where(User.id == transaction.unit.owner_user_id)
-        )
+        owner_result = await db.execute(select(User).where(User.id == transaction.unit.owner_user_id))
         owner = owner_result.scalar_one_or_none()
         if owner:
             resident_name = owner.full_name
     
     signer_name = None
-    
-    treasurer_result = await db.execute(
-        select(User).where(User.board_position == BoardPosition.TREASURER, User.is_active == True)
-    )
+    treasurer_result = await db.execute(select(User).where(User.board_position == BoardPosition.TREASURER, User.is_active == True))
     treasurer = treasurer_result.scalar_one_or_none()
     
     if treasurer:
         signer_name = treasurer.full_name
     else:
-        president_result = await db.execute(
-            select(User).where(User.board_position == BoardPosition.PRESIDENT, User.is_active == True)
-        )
+        # Fallback a Presidente o Admin
+        president_result = await db.execute(select(User).where(User.board_position == BoardPosition.PRESIDENT, User.is_active == True))
         president = president_result.scalar_one_or_none()
-        
         if president:
             signer_name = president.full_name
         else:
-            admin_result = await db.execute(
-                select(User).where(User.role == UserRole.ADMIN, User.is_active == True)
-            )
+            admin_result = await db.execute(select(User).where(User.role == UserRole.ADMIN, User.is_active == True))
             admin = admin_result.scalar_one_or_none()
             if admin:
                 signer_name = admin.full_name
     
-    treasurer_name = signer_name
-    
+    # 3. Generar el PDF usando los datos dinámicos
     folio = generate_folio(transaction.id, transaction.transaction_date)
     
     pdf_buffer = generate_receipt_pdf(
-        transaction_id=transaction.id,
+        transaction_id=str(transaction.id),
         folio=folio,
         transaction_date=transaction.transaction_date,
         amount=transaction.amount,
         description=transaction.description,
         category_name=transaction.category.name if transaction.category else "Sin categoría",
         payment_method=transaction.payment_method.value if transaction.payment_method else None,
+        
+        # AQUÍ PASAMOS LOS DATOS REALES:
+        condominium_data=condominium_data,
+        
         reference_number=transaction.reference_number,
         unit_number=unit_number,
         resident_name=resident_name,
-        treasurer_name=treasurer_name,
+        treasurer_name=signer_name,
         notes=transaction.notes
     )
     
