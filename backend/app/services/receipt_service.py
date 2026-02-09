@@ -12,7 +12,7 @@ from reportlab.lib.units import inch, cm
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image
 from reportlab.lib.enums import TA_CENTER, TA_RIGHT, TA_LEFT
 import os
-import requests # Necesario para descargar logos remotos si usas URLs
+import httpx # Necesario para descargar logos remotos si usas URLs
 
 # Ruta del logo por defecto (si no hay uno personalizado)
 DEFAULT_LOGO_PATH = os.path.join(os.path.dirname(__file__), "..", "static", "images", "logo.jpg")
@@ -80,9 +80,12 @@ def _numero_a_letras(numero: Decimal) -> str:
 def get_image_from_url(url):
     """Descarga una imagen desde una URL y la devuelve como BytesIO."""
     try:
-        response = requests.get(url)
-        if response.status_code == 200:
-            return BytesIO(response.content)
+        if not url: return None
+        # Usamos httpx de forma síncrona aquí para no complicar el flujo de reportlab
+        with httpx.Client() as client:
+            response = client.get(url, timeout=5.0)
+            if response.status_code == 200:
+                return BytesIO(response.content)
     except:
         return None
     return None
