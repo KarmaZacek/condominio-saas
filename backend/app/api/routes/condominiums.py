@@ -1,3 +1,4 @@
+import uuid
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from sqlalchemy import select
@@ -109,7 +110,9 @@ async def initial_setup(
         if not existing_units:
             new_units = []
             for i in range(1, setup_data.total_units + 1):
+                new_id = uuid.uuid4()
                 unit = Unit(
+                    id=new_id,
                     unit_number=str(i),
                     monthly_fee=setup_data.default_monthly_fee,
                     condominium_id=condo.id,
@@ -118,7 +121,7 @@ async def initial_setup(
                 new_units.append(unit) # 2. Agregamos a la lista (NO a la db todavía)
             # 3. Insertamos las 70 casas de una sola vez fuera del bucle
             db.add_all(new_units)
-            print("✅ Unidades añadidas a la sesión")
+            print("✅ Unidades preparadas con IDs generados en Python")
         else:
             print("ℹ️ Las unidades ya existían, saltando creación.")
         
