@@ -2,7 +2,7 @@ from typing import Optional
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 from app.models.models import User
-from app.core.security import get_password_hash # Asegúrate que esta función exista en security, si no, ajusta el import
+from app.core.security import hash_password # Asegúrate que esta función exista en security, si no, ajusta el import
 
 class UserService:
     def __init__(self, db: AsyncSession):
