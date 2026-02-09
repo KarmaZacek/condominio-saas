@@ -12,6 +12,7 @@ from sqlalchemy.orm import selectinload
 from app.core.database import get_db
 from app.core.security import hash_password
 from app.middleware.auth import get_current_user, require_role, AuthenticatedUser
+from app.api.deps import get_db, get_user_service, get_current_active_user # <--- IMPORTANTE
 from app.models.models import User, Unit, Transaction, AuditLog, AuditAction, RefreshToken, BoardPosition
 from app.schemas.entities import PaginatedResponse
 from app.schemas.auth import UserResponse
@@ -239,13 +240,18 @@ async def get_user(
 @router.post("", response_model=UserDetailResponse, status_code=status.HTTP_201_CREATED)
 async def create_user(
     data: UserCreateAdmin,
-    current_user: AuthenticatedUser = Depends(require_role("admin")),
+    # 1. CAMBIO: Usamos get_current_active_user para traer el condominio del admin
+    current_user: User = Depends(get_current_active_user), 
     db: AsyncSession = Depends(get_db)
 ):
     """
-    Crea un nuevo usuario.
+    Crea un nuevo usuario (Residente, Staff, etc).
     Solo administradores.
     """
+    # 2. VALIDACIÓN MANUAL DE ROL (Ya que quitamos require_role del Depends)
+    if current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="No tienes permisos de administrador")
+
     # Verificar email único
     existing = await db.execute(
         select(User).where(func.lower(User.email) == data.email.lower())
@@ -268,7 +274,10 @@ async def create_user(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Unidad no encontrada"
             )
-    
+        # Opcional: Verificar que la unidad pertenezca al mismo condominio
+        if unit.condominium_id != current_user.condominium_id:
+             raise HTTPException(status_code=400, detail="La unidad no pertenece a su condominio")
+
     # Crear usuario
     user = User(
         email=data.email.lower(),
@@ -278,7 +287,11 @@ async def create_user(
         role=data.role,
         board_position=BoardPosition(data.board_position) if data.board_position else None,
         is_active=data.is_active,
-        email_verified=True  # Admin crea usuarios verificados
+        email_verified=True, # Admin crea usuarios verificados
+        
+        # 3. CAMBIO CRÍTICO: Asignamos el condominio y la unidad
+        condominium_id=current_user.condominium_id,  # <--- ¡ESTO FALTABA! ✅
+        unit_id=data.unit_id # <--- También faltaba asignarlo al objeto
     )
     
     db.add(user)
@@ -293,13 +306,18 @@ async def create_user(
             "email": user.email,
             "full_name": user.full_name,
             "role": data.role,
-            "unit_id": str(data.unit_id) if data.unit_id else None
+            "unit_id": str(data.unit_id) if data.unit_id else None,
+            "condominium_id": str(current_user.condominium_id)
         }
     )
     db.add(audit)
     
-    await db.commit()
-    await db.refresh(user)
+    try:
+        await db.commit()
+        await db.refresh(user)
+    except Exception as e:
+        await db.rollback()
+        raise HTTPException(status_code=500, detail=f"Error al crear usuario: {str(e)}")
     
     return UserDetailResponse(
         id=user.id,
@@ -310,7 +328,7 @@ async def create_user(
         board_position=user.board_position.value if user.board_position else None,
         is_active=user.is_active,
         email_verified=user.email_verified,
-        unit_id=None,  # Usuario recién creado no tiene unidades
+        unit_id=user.unit_id, 
         unit_number=unit.unit_number if unit else None,
         created_at=user.created_at,
         updated_at=user.updated_at,
