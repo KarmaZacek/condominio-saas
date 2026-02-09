@@ -241,7 +241,7 @@ async def create_transaction(
         )
         await db.commit()
         
-        return result
+        return result.transaction  # Devolvemos solo la parte de la Transacción
 
     except ValueError as e:
         error_msg = str(e)
@@ -324,7 +324,7 @@ async def update_transaction(
             )
             await db.commit()
         
-        return result
+        return result.transaction  # Devolvemos solo la parte de la Transacción
     except ValueError as e:
         error = str(e)
         if error == "TRANSACTION_NOT_FOUND":
@@ -467,7 +467,7 @@ async def upload_receipt(
         db.add(audit)
         await db.commit()
         
-        return result
+        return result.transaction  # Devolvemos solo la parte de la Transacción
     except ValueError:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
