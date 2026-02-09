@@ -199,7 +199,7 @@ async def get_transaction(
     return service._to_response(transaction)
 
 
-@router.post("/", response_model=TransactionResponse)
+@router.post("", response_model=TransactionResponse)
 async def create_transaction(
     data: TransactionCreate,
     # 1. CAMBIO: Usamos get_current_active_user para obtener el objeto completo con datos del condominio
