@@ -1,15 +1,20 @@
 import uuid
-from fastapi import APIRouter, Depends, HTTPException, status
+import os
+import shutil
+from fastapi import APIRouter, Depends, HTTPException, status, Form, UploadFile, File
 from sqlalchemy.orm import Session
 from sqlalchemy import select
-from typing import Any
+from typing import Any, Optional
 from pydantic import BaseModel, Field
 
 from app.core.database import get_db
 from app.models.models import Condominium, User, Unit
 from app.api.deps import get_current_active_user
+from app.core.config import settings
 
 router = APIRouter()
+LOGOS_DIR = "app/static/logos"
+os.makedirs(LOGOS_DIR, exist_ok=True)
 
 # --- 1. ESQUEMA DE DATOS (Lo que esperamos recibir de la App) ---
 class CondoSetupRequest(BaseModel):
@@ -47,7 +52,8 @@ async def get_setup_status(
         # IMPORTANTE: Convertir UUID a string para que no falle el JSON
         condo_data = {
             "id": str(condo.id),
-            "name": condo.name
+            "name": condo.name, 
+            "logo_url": condo.logo_url # Agregamos esto por si sirve
         }
 
         print(f"✅ Status encontrado en BD: {is_completed}")
@@ -67,7 +73,13 @@ async def get_setup_status(
 # --- 2. EL ENDPOINT MAGICO (/setup/initial) ---
 @router.post("/setup/initial", response_model=Any)
 async def initial_setup(
-    setup_data: CondoSetupRequest,
+    # Recibimos campos individuales con Form(...)
+    name: str = Form(..., min_length=3),
+    address: str = Form(..., min_length=5),
+    default_monthly_fee: float = Form(..., gt=0),
+    total_units: int = Form(..., gt=0, le=500),
+    # Recibimos el archivo opcionalmente
+    logo: Optional[UploadFile] = File(None),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ):
@@ -93,14 +105,39 @@ async def initial_setup(
             print("⚠️ El condominio ya estaba configurado")
             # No devolvemos error 400 para ser idempotentes (si reintenta, que pase)
             return {"message": "Configuración ya realizada previamente", "condominium": condo}
+        # C. Manejo del Logo (Si se envió)
+        logo_url = None
+        if logo:
+            try:
+                # Generar nombre único: condoID_random.ext
+                file_ext = os.path.splitext(logo.filename)[1] or ".jpg"
+                filename = f"{condo.id}_{uuid.uuid4().hex[:8]}{file_ext}"
+                file_path = os.path.join(LOGOS_DIR, filename)
+                
+                # Guardar archivo
+                with open(file_path, "wb") as buffer:
+                    shutil.copyfileobj(logo.file, buffer)
+                
+                # Generar URL pública (asumiendo que sirves estáticos en /static)
+                # Ojo: En producción esto debería ser la URL completa o ruta relativa
+                logo_url = f"http://100.64.0.3:8080/static/logos/{filename}" # Ajusta el dominio según tu entorno
+                # O mejor, guarda ruta relativa:
+                # logo_url = f"/static/logos/{filename}"
+                
+                print(f"🖼️ Logo guardado en: {file_path}")
+            except Exception as e:
+                print(f"⚠️ Error guardando logo: {e}")
+                # No detenemos el proceso si falla el logo, pero loggeamos 
 
-        # C. Actualizar Datos
+        # D. Actualizar Datos
         print("📝 Actualizando datos básicos...")
         condo.name = setup_data.name
         condo.address = setup_data.address
         condo.default_monthly_fee = setup_data.default_monthly_fee
-        
-        # D. Generar Unidades
+        if logo_url:
+            condo.logo_url = logo_url      
+
+        # E. Generar Unidades
         print(f"🏗️ Generando {setup_data.total_units} unidades...")
         
         # Verificar si existen
@@ -116,7 +153,8 @@ async def initial_setup(
                     unit_number=str(i),
                     monthly_fee=setup_data.default_monthly_fee,
                     condominium_id=condo.id,
-                    status="VACANT"
+                    status="VACANT",
+                    balance=0
                 )
                 new_units.append(unit) # 2. Agregamos a la lista (NO a la db todavía)
             # 3. Insertamos las 70 casas de una sola vez fuera del bucle
@@ -138,6 +176,8 @@ async def initial_setup(
             "condominium": {
                 "id": str(condo.id),
                 "name": condo.name,
+                "address": condo.address,
+                "logo_url": condo.logo_url,
                 "is_setup_completed": True
             }
         }

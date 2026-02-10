@@ -142,7 +142,7 @@ app = FastAPI(
     description="""
     ## Sistema de Gestión de Condominios
     
-    API REST para la administración financiera del condominio Parques de Santa Cruz 9.
+    API REST para la administración financiera de condominios
     
     ### Funcionalidades principales:
     - **Autenticación**: JWT con refresh tokens
@@ -155,6 +155,12 @@ app = FastAPI(
     redoc_url="/redoc" if settings.DEBUG else None,
 )
 
+# Crear directorios si no existen
+os.makedirs("app/static/logos", exist_ok=True)
+os.makedirs("app/static/images", exist_ok=True)
+
+# Montar ruta estática
+app.mount("/static", StaticFiles(directory="app/static"), name="static")
 # Middlewares
 app.add_middleware(
     CORSMiddleware,
