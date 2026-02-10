@@ -6,7 +6,7 @@ from pydantic import BaseModel, EmailStr
 
 from app.core.database import get_db
 from app.models.models import Condominium, User, UserRole, BoardPosition
-from app.core.security import get_password_hash
+from app.core.security import hash_password as get_password_hash
 # Define una clave secreta simple para proteger este endpoint por ahora
 SUPER_ADMIN_KEY = "tu_clave_secreta_super_segura_123" 
 
