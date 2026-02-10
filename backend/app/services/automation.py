@@ -1,10 +1,9 @@
 """
 Servicio de Automatización de Cargos Mensuales
-CORREGIDO: Uso de objetos UUID nativos para evitar error de 'sentinel values'
 """
 from datetime import date
 from decimal import Decimal
-from uuid import uuid4 # Importamos la función generadora
+from uuid import uuid4
 from sqlalchemy import select, and_, func
 from app.models.models import Unit, Transaction, Category, User, TransactionStatus, CategoryType
 from app.core.database import async_session_factory
@@ -32,7 +31,7 @@ async def generate_monthly_fees_job():
                 print("❌ Error: No existe categoría 'Emisión de Cuota'")
                 return {"success": False, "message": "Falta categoría 'Emisión de Cuota'", "count": 0}
 
-            # 3. Validar Admin
+            # 3. Validar Admin (Usamos el primero que encontremos como 'System User')
             admin_query = select(User).where(User.role == "admin").limit(1)
             admin_result = await db.execute(admin_query)
             admin_user = admin_result.scalar_one_or_none()
@@ -41,6 +40,7 @@ async def generate_monthly_fees_job():
                 return {"success": False, "message": "No hay usuario admin para asignar el cargo", "count": 0}
 
             # 4. CHEQUEO DE SEGURIDAD (¿Ya existen?)
+            # Evita duplicar cargos si se corre el script dos veces en el mismo mes
             check_query = select(func.count(Transaction.id)).where(
                 and_(
                     Transaction.category_id == category.id,
@@ -71,10 +71,8 @@ async def generate_monthly_fees_job():
             for unit in units:
                 amount = unit.monthly_fee if unit.monthly_fee else Decimal("300.00")
                 
-                # ✅ CORRECCIÓN AQUÍ:
-                # Usamos uuid4() DIRECTO (Objeto UUID), NO str(uuid4())
                 new_tx = Transaction(
-                    id=uuid4(), # <--- SIN str()
+                    id=uuid4(),
                     unit_id=unit.id,
                     category_id=category.id,
                     created_by=admin_user.id,
@@ -85,11 +83,17 @@ async def generate_monthly_fees_job():
                     status=TransactionStatus.CONFIRMED,
                     fiscal_period=current_period,
                     is_advance_payment=False,
-                    is_late_payment=False
+                    is_late_payment=False,
+                    
+                    # ✅ CORRECCIÓN CRÍTICA AQUÍ:
+                    # Pasamos el ID del condominio de la unidad a la transacción
+                    condominium_id=unit.condominium_id 
                 )
                 db.add(new_tx)
                 
-                # Actualizar saldo
+                # Actualizar saldo de la unidad (Cargo = Resta saldo)
+                # Nota: Dependiendo de tu lógica contable, un "cargo" (deuda) podría restar saldo a favor
+                # o sumar deuda. Asumimos que resta del balance actual.
                 unit.balance -= amount
                 count += 1
                 total_amount += amount
@@ -103,4 +107,7 @@ async def generate_monthly_fees_job():
         except Exception as e:
             await db.rollback()
             print(f"❌ Error crítico: {e}")
+            # Importante: Imprimir el traceback para depurar si vuelve a fallar
+            import traceback
+            traceback.print_exc()
             return {"success": False, "message": f"Error interno: {str(e)}", "count": 0}
