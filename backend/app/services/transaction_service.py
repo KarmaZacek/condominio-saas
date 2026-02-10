@@ -126,7 +126,7 @@ class TransactionService:
         non_common_ids = [row[0] for row in non_common_result.fetchall()]
         
         # Excluir gastos de categorías no comunes (los ingresos de multas SÍ pasan)
-        if non_common_ids:
+        if non_common_ids and not unit_id:
             filters.append(
                 or_(
                     Transaction.type == CategoryType.INCOME,
