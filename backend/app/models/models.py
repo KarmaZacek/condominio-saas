@@ -10,7 +10,7 @@ from uuid import uuid4
 
 from sqlalchemy import (
     Column,  # <--- ¡ESTO ES LO QUE FALTA!
-    String, Text, Boolean, Integer, DateTime, Date,
+    String, Text, Boolean, Integer, DateTime, Date, UniqueConstraint,
     Numeric, ForeignKey, Enum, JSON, Index, CheckConstraint,
     func
 )
@@ -195,7 +195,7 @@ class Unit(Base):
         index=True
     )  # Arrendatario
 
-    unit_number: Mapped[str] = mapped_column(String(10), unique=True, index=True)
+    unit_number: Mapped[str] = mapped_column(String(10), index=True)
     building: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
     floor: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     area_m2: Mapped[Optional[Decimal]] = mapped_column(Numeric(10, 2), nullable=True)
@@ -239,6 +239,9 @@ class Unit(Base):
         CheckConstraint("floor IS NULL OR floor >= 0", name="valid_floor"),
         CheckConstraint("monthly_fee >= 0", name="valid_monthly_fee"),
         Index("idx_units_balance_debt", "balance", postgresql_where=balance < 0),
+        
+        # ✅ NUEVO: La combinación (condominio + número) debe ser única
+        UniqueConstraint('condominium_id', 'unit_number', name='uix_units_condominium_number'),
     )
     
     def __repr__(self):
