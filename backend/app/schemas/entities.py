@@ -33,6 +33,19 @@ class PaginatedResponse(BaseModel, Generic[T]):
     pagination: PaginationMeta
 
 
+# ================== CONDOMINIOS (NUEVO PARA EVITAR BUCLE) ==================
+
+class CondominiumResponse(BaseModel):
+    """Respuesta ligera de condominio (sin usuarios anidados)."""
+    id: str
+    name: str
+    address: Optional[str] = None
+    logo_url: Optional[str] = None
+    is_setup_completed: bool = False
+    
+    model_config = ConfigDict(from_attributes=True)
+
+
 # ================== USUARIOS ==================
 
 class UserBase(BaseModel):
@@ -71,6 +84,11 @@ class UserResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
     last_login: Optional[datetime] = None
+    
+    # ✅ CORRECCIÓN CRÍTICA: Incluimos el Condominio pero usando el esquema simple
+    # Esto rompe el bucle infinito User -> Condo -> Users
+    condominium_id: str
+    condominium: Optional[CondominiumResponse] = None
     
     model_config = ConfigDict(from_attributes=True)
 
@@ -341,6 +359,3 @@ class UnitBalance(BaseModel):
     total_payments: Decimal
     transactions: List[TransactionResponse]
     monthly_breakdown: List[dict]
-
-# Actualizar referencias forward si es necesario
-# UnitBalance.model_rebuild()
