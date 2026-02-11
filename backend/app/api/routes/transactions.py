@@ -78,17 +78,14 @@ async def list_condominium_expenses(
     """
     service = get_transaction_service(db)
     
-    # CORRECCIÓN: Eliminada la lógica que buscaba 'unit_id' (variable inexistente).
-    # Para gastos de condominio, queremos ver gastos GENERALES, por lo que 
-    # pasamos unit_id=None explícitamente al servicio.
-    
+    # ✅ CORRECCIÓN: Pasar condominium_id al servicio
     return await service.get_transactions(
         page=page,
         limit=limit,
         type=CategoryType.EXPENSE,
         category_id=category_id,
-        unit_id=None, # ✅ IMPORTANTE: None para traer gastos globales (sin unidad asignada)
-        status=None,  # Permitir ver todos los status (excepto cancelados por defecto en servicio)
+        unit_id=None,  # Gastos globales (sin unidad asignada)
+        status=None,
         from_date=from_date,
         to_date=to_date,
         fiscal_period=fiscal_period,
@@ -98,7 +95,8 @@ async def list_condominium_expenses(
         max_amount=None,
         is_advance=is_advance,
         is_late=is_late,
-        user_role=current_user.role
+        user_role=current_user.role,
+        condominium_id=current_user.condominium_id  # ✅ CRÍTICO
     )
 
 
@@ -121,8 +119,8 @@ async def list_transactions(
     max_amount: Optional[Decimal] = None,
     search: Optional[str] = None,
     has_receipt: Optional[bool] = None,
-    is_advance: Optional[bool] = None, # Agregado para consistencia
-    is_late: Optional[bool] = None,    # Agregado para consistencia
+    is_advance: Optional[bool] = None,
+    is_late: Optional[bool] = None,
     current_user: AuthenticatedUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
@@ -135,6 +133,7 @@ async def list_transactions(
     if current_user.role == "resident":
         unit_id = current_user.unit_id
     
+    # ✅ CORRECCIÓN: Pasar condominium_id al servicio
     return await service.get_transactions(
         page=page,
         limit=limit,
@@ -152,7 +151,8 @@ async def list_transactions(
         is_advance=is_advance,
         is_late=is_late,
         user_id=current_user.id,
-        user_role=current_user.role
+        user_role=current_user.role,
+        condominium_id=current_user.condominium_id  # ✅ CRÍTICO
     )
 
 
@@ -171,14 +171,18 @@ async def get_transaction(
     """
     service = get_transaction_service(db)
     
-    transaction = await service.get_transaction(transaction_id)
+    # ✅ CORRECCIÓN: Pasar condominium_id para verificar que pertenece al condominio
+    transaction = await service.get_transaction(
+        transaction_id, 
+        condominium_id=current_user.condominium_id  # ✅ CRÍTICO
+    )
     
     if not transaction:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail={
                 "error": "TRANSACTION_NOT_FOUND",
-                "message": "Transacción no encontrada"
+                "message": "Transacción no encontrada en tu condominio"
             }
         )
     
@@ -202,25 +206,27 @@ async def get_transaction(
 @router.post("", response_model=TransactionResponse)
 async def create_transaction(
     data: TransactionCreate,
-    # 1. CAMBIO: Usamos get_current_active_user para obtener el objeto completo con datos del condominio
     current_user: User = Depends(get_current_active_user), 
     db: AsyncSession = Depends(get_db)
 ):
     """
     Crea una nueva transacción.
     """
-    # 2. VALIDACIÓN DE ROL: Como quitamos require_role, validamos aquí
+    # Validación de rol
     if current_user.role != "admin":
-        raise HTTPException(status_code=403, detail="No tienes permisos de administrador")
+        raise HTTPException(
+            status_code=403, 
+            detail="No tienes permisos de administrador"
+        )
 
     service = get_transaction_service(db)
     
     try:
-        # 3. LLAMADA AL SERVICIO: Pasamos el condominium_id explícitamente
+        # ✅ YA ESTÁ CORRECTO: Pasa condominium_id
         result = await service.create_transaction(
             data=data,
             created_by=current_user.id,
-            condominium_id=current_user.condominium_id  # <--- ¡LA SOLUCIÓN ESTÁ AQUÍ! ✅
+            condominium_id=current_user.condominium_id  # ✅ CRÍTICO
         )
         
         # Registrar auditoría
@@ -228,193 +234,225 @@ async def create_transaction(
             db=db,
             user_id=current_user.id,
             action=AuditAction.CREATE,
-            entity_id=result.transaction.id, # <-- CORREGIDO: Accedemos al objeto interno
-            new_values={
-                "type": data.type.value,
-                "amount": str(data.amount),
-                "description": data.description,
-                "unit_id": str(data.unit_id) if data.unit_id else None,
-                "category_id": str(data.category_id),
-                "fiscal_period": data.fiscal_period,
-                "condominium_id": str(current_user.condominium_id)
-            }
+            entity_id=str(result.transaction.id),
+            new_values=result.transaction.__dict__
         )
+        
         await db.commit()
         
-        return result.transaction  # Devolvemos solo la parte de la Transacción
-
+        return result.transaction
     except ValueError as e:
-        error_msg = str(e)
-        if error_msg == "DUPLICATE_PAYMENT_SAME_PERIOD":
+        error_message = str(e)
+        
+        if "UNIT_NOT_FOUND" in error_message:
             raise HTTPException(
-                status_code=400,
-                detail="DUPLICATE_PAYMENT_SAME_PERIOD"
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail={"error": "UNIT_NOT_FOUND", "message": "Vivienda no encontrada"}
             )
-        
-        error_messages = {
-            "CATEGORY_NOT_FOUND": "Categoría no encontrada",
-            "CATEGORY_TYPE_MISMATCH": "El tipo de categoría no coincide",
-            "UNIT_NOT_FOUND": "Vivienda no encontrada",
-            "INCOME_REQUIRES_UNIT": "Los ingresos de cuotas requieren especificar una vivienda"
-        }
-        
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail={
-                "error": error_msg,
-                "message": error_messages.get(error_msg, f"Error de validación: {error_msg}")
-            }
-        )
+        elif "CATEGORY_NOT_FOUND" in error_message:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail={"error": "CATEGORY_NOT_FOUND", "message": "Categoría no encontrada"}
+            )
+        elif "DUPLICATE_PAYMENT" in error_message:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail={
+                    "error": "DUPLICATE_PAYMENT",
+                    "message": "Ya existe un pago de mantenimiento para este mes"
+                }
+            )
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={"error": "VALIDATION_ERROR", "message": error_message}
+            )
 
 
-@router.put(
-    "/{transaction_id}",
-    response_model=TransactionResponse,
-    summary="Actualizar transacción"
-)
+@router.put("/{transaction_id}", response_model=TransactionResponse)
 async def update_transaction(
     transaction_id: str,
     data: TransactionUpdate,
-    current_user: AuthenticatedUser = Depends(require_role("admin")),
+    current_user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db)
 ):
     """
     Actualiza una transacción existente.
     """
+    # Validación de rol
+    if current_user.role != "admin":
+        raise HTTPException(
+            status_code=403,
+            detail="No tienes permisos de administrador"
+        )
+
     service = get_transaction_service(db)
     
-    # Obtener valores anteriores para auditoría
-    old_transaction = await service.get_transaction(transaction_id)
+    # ✅ CORRECCIÓN: Verificar que la transacción pertenezca al condominio
+    old_transaction = await service.get_transaction(
+        transaction_id,
+        condominium_id=current_user.condominium_id  # ✅ CRÍTICO
+    )
+    
     if not old_transaction:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail={"error": "TRANSACTION_NOT_FOUND", "message": "Transacción no encontrada"}
+            detail={
+                "error": "TRANSACTION_NOT_FOUND",
+                "message": "Transacción no encontrada en tu condominio"
+            }
         )
-    
-    old_values = {
-        "amount": str(old_transaction.amount),
-        "description": old_transaction.description,
-        "status": old_transaction.status.value if old_transaction.status else None,
-        "category_id": old_transaction.category_id,
-        "unit_id": old_transaction.unit_id
-    }
     
     try:
         result = await service.update_transaction(transaction_id, data)
         
         # Registrar auditoría
-        new_values = {}
-        if data.amount is not None:
-            new_values["amount"] = str(data.amount)
-        if data.description is not None:
-            new_values["description"] = data.description
-        if data.status is not None:
-            new_values["status"] = data.status.value
-        if data.category_id is not None:
-            new_values["category_id"] = data.category_id
+        await log_audit(
+            db=db,
+            user_id=current_user.id,
+            action=AuditAction.UPDATE,
+            entity_id=transaction_id,
+            old_values=old_transaction.__dict__,
+            new_values=result.transaction.__dict__
+        )
         
-        if new_values:
-            await log_audit(
-                db=db,
-                user_id=current_user.id,
-                action=AuditAction.UPDATE,
-                entity_id=transaction_id,
-                old_values=old_values,
-                new_values=new_values
-            )
-            await db.commit()
+        await db.commit()
         
-        return result.transaction  # Devolvemos solo la parte de la Transacción
+        return result.transaction
     except ValueError as e:
-        error = str(e)
-        if error == "TRANSACTION_NOT_FOUND":
+        error_message = str(e)
+        
+        if "TRANSACTION_NOT_FOUND" in error_message:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail={"error": "TRANSACTION_NOT_FOUND", "message": "Transacción no encontrada"}
             )
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail={"error": error, "message": "Error de validación"}
-        )
+        elif "CANNOT_UPDATE_CONFIRMED" in error_message:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={
+                    "error": "CANNOT_UPDATE_CONFIRMED",
+                    "message": "No se puede editar una transacción confirmada"
+                }
+            )
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={"error": "VALIDATION_ERROR", "message": error_message}
+            )
 
 
-@router.delete(
-    "/{transaction_id}",
-    status_code=status.HTTP_204_NO_CONTENT,
-    summary="Eliminar transacción"
-)
+@router.delete("/{transaction_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_transaction(
     transaction_id: str,
-    current_user: AuthenticatedUser = Depends(require_role("admin")),
+    current_user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db)
 ):
     """
-    Elimina (cancela) una transacción.
+    Cancela (marca como cancelada) una transacción.
     """
+    # Validación de rol
+    if current_user.role != "admin":
+        raise HTTPException(
+            status_code=403,
+            detail="No tienes permisos de administrador"
+        )
+
     service = get_transaction_service(db)
     
+    # ✅ CORRECCIÓN: Verificar que la transacción pertenezca al condominio
+    transaction = await service.get_transaction(
+        transaction_id,
+        condominium_id=current_user.condominium_id  # ✅ CRÍTICO
+    )
+    
+    if not transaction:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={
+                "error": "TRANSACTION_NOT_FOUND",
+                "message": "Transacción no encontrada en tu condominio"
+            }
+        )
+    
     try:
-        await service.delete_transaction(transaction_id) # Se cambió cancel_transaction por delete_transaction según tu service
+        await service.cancel_transaction(transaction_id)
         
+        # Registrar auditoría
         await log_audit(
             db=db,
             user_id=current_user.id,
             action=AuditAction.DELETE,
             entity_id=transaction_id,
-            new_values={"status": "cancelled"}
+            old_values=transaction.__dict__
         )
-        await db.commit()
         
+        await db.commit()
     except ValueError as e:
-        if str(e) == "TRANSACTION_NOT_FOUND":
+        error_message = str(e)
+        
+        if "TRANSACTION_NOT_FOUND" in error_message:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail={"error": "TRANSACTION_NOT_FOUND", "message": "Transacción no encontrada"}
             )
-        raise
+        elif "ALREADY_CANCELLED" in error_message:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={"error": "ALREADY_CANCELLED", "message": "La transacción ya está cancelada"}
+            )
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={"error": "VALIDATION_ERROR", "message": error_message}
+            )
 
-@router.patch("/{transaction_id}/cancel", response_model=TransactionResponse)
-async def cancel_transaction(
-    transaction_id: str,
-    current_user: AuthenticatedUser = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)
-):
-    """
-    Cancela una transacción existente.
-    """
-    # Solo administradores pueden cancelar (ajusta según tu regla de negocio)
-    if current_user.role != "admin":
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN, 
-            detail="No tienes permisos para cancelar transacciones"
-        )
 
-    service = get_transaction_service(db)
-    return await service.cancel_transaction(transaction_id, str(current_user.id))
-
-@router.post(
-    "/{transaction_id}/receipt",
-    response_model=TransactionResponse,
-    summary="Subir comprobante"
-)
+@router.post("/{transaction_id}/upload-receipt")
 async def upload_receipt(
     transaction_id: str,
     file: UploadFile = File(...),
-    current_user: AuthenticatedUser = Depends(require_role("admin")),
+    current_user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db)
 ):
     """
     Sube un comprobante para una transacción.
     """
-    from app.core.config import settings
+    # Validación de rol
+    if current_user.role != "admin":
+        raise HTTPException(
+            status_code=403,
+            detail="No tienes permisos de administrador"
+        )
+    
+    # ✅ CORRECCIÓN: Verificar que la transacción pertenezca al condominio
+    service = get_transaction_service(db)
+    transaction = await service.get_transaction(
+        transaction_id,
+        condominium_id=current_user.condominium_id  # ✅ CRÍTICO
+    )
+    
+    if not transaction:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={
+                "error": "TRANSACTION_NOT_FOUND",
+                "message": "Transacción no encontrada en tu condominio"
+            }
+        )
     
     # Validar tipo de archivo
-    if file.content_type not in settings.allowed_file_types_list:
+    from app.core.config import settings
+    
+    allowed_extensions = ['.jpg', '.jpeg', '.png', '.pdf']
+    file_ext = file.filename.split('.')[-1].lower()
+    
+    if f'.{file_ext}' not in allowed_extensions:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail={
                 "error": "INVALID_FILE_TYPE",
-                "message": f"Tipo de archivo no permitido. Permitidos: {settings.ALLOWED_FILE_TYPES}"
+                "message": "Solo se permiten archivos JPG, PNG o PDF"
             }
         )
     
@@ -446,8 +484,6 @@ async def upload_receipt(
     receipt_url = f"/uploads/receipts/{transaction_id}/{unique_filename}"
     thumbnail_url = receipt_url
     
-    service = get_transaction_service(db)
-    
     try:
         result = await service.add_receipt(
             transaction_id=transaction_id,
@@ -467,7 +503,7 @@ async def upload_receipt(
         db.add(audit)
         await db.commit()
         
-        return result.transaction  # Devolvemos solo la parte de la Transacción
+        return result.transaction
     except ValueError:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -490,7 +526,11 @@ async def get_receipt(
     """
     service = get_transaction_service(db)
     
-    transaction = await service.get_transaction(transaction_id)
+    # ✅ CORRECCIÓN: Verificar que la transacción pertenezca al condominio
+    transaction = await service.get_transaction(
+        transaction_id,
+        condominium_id=current_user.condominium_id  # ✅ CRÍTICO
+    )
     
     if not transaction:
         raise HTTPException(
@@ -524,12 +564,6 @@ async def get_receipt(
     "/{transaction_id}/receipt/pdf",
     summary="Generar recibo de pago PDF"
 )
-# Reemplazar la función existente 'generate_receipt_pdf' al final de transactions.py
-
-@router.get(
-    "/{transaction_id}/receipt/pdf",
-    summary="Generar recibo de pago PDF"
-)
 async def generate_receipt_pdf(
     transaction_id: str,
     current_user: AuthenticatedUser = Depends(get_current_user),
@@ -542,10 +576,9 @@ async def generate_receipt_pdf(
     from app.services.receipt_service import generate_receipt_pdf, generate_folio
     from sqlalchemy import select
     from sqlalchemy.orm import selectinload
-    # IMPORTANTE: Asegúrate que Condominium esté importado o agrégalo aquí
     from app.models.models import Transaction, Unit, User, Category, CategoryType, BoardPosition, UserRole, Condominium
     
-    # 1. Recuperar Transacción
+    # ✅ CORRECCIÓN: Filtrar por condominium_id al recuperar transacción
     result = await db.execute(
         select(Transaction)
         .options(
@@ -554,13 +587,14 @@ async def generate_receipt_pdf(
             selectinload(Transaction.created_by_user)
         )
         .where(Transaction.id == transaction_id)
+        .where(Transaction.condominium_id == current_user.condominium_id)  # ✅ CRÍTICO
     )
     transaction = result.scalar_one_or_none()
     
     if not transaction:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail={"error": "TRANSACTION_NOT_FOUND", "message": "Transacción no encontrada"}
+            detail={"error": "TRANSACTION_NOT_FOUND", "message": "Transacción no encontrada en tu condominio"}
         )
     
     if transaction.type != CategoryType.INCOME:
@@ -577,7 +611,7 @@ async def generate_receipt_pdf(
                 detail={"error": "FORBIDDEN", "message": "No tienes acceso a este recibo"}
             )
     
-    # 2. Recuperar Datos del Condominio
+    # Recuperar Datos del Condominio
     condominium_data = {}
     if transaction.condominium_id:
         condo_result = await db.execute(select(Condominium).where(Condominium.id == transaction.condominium_id))
@@ -600,24 +634,39 @@ async def generate_receipt_pdf(
             resident_name = owner.full_name
     
     signer_name = None
-    treasurer_result = await db.execute(select(User).where(User.board_position == BoardPosition.TREASURER, User.is_active == True))
+    treasurer_result = await db.execute(
+        select(User)
+        .where(User.board_position == BoardPosition.TREASURER)
+        .where(User.condominium_id == current_user.condominium_id)  # ✅ Filtrar por condominio
+        .where(User.is_active == True)
+    )
     treasurer = treasurer_result.scalar_one_or_none()
     
     if treasurer:
         signer_name = treasurer.full_name
     else:
         # Fallback a Presidente o Admin
-        president_result = await db.execute(select(User).where(User.board_position == BoardPosition.PRESIDENT, User.is_active == True))
+        president_result = await db.execute(
+            select(User)
+            .where(User.board_position == BoardPosition.PRESIDENT)
+            .where(User.condominium_id == current_user.condominium_id)  # ✅ Filtrar por condominio
+            .where(User.is_active == True)
+        )
         president = president_result.scalar_one_or_none()
         if president:
             signer_name = president.full_name
         else:
-            admin_result = await db.execute(select(User).where(User.role == UserRole.ADMIN, User.is_active == True))
+            admin_result = await db.execute(
+                select(User)
+                .where(User.role == UserRole.ADMIN)
+                .where(User.condominium_id == current_user.condominium_id)  # ✅ Filtrar por condominio
+                .where(User.is_active == True)
+            )
             admin = admin_result.scalar_one_or_none()
             if admin:
                 signer_name = admin.full_name
     
-    # 3. Generar el PDF usando los datos dinámicos
+    # Generar el PDF usando los datos dinámicos
     folio = generate_folio(transaction.id, transaction.transaction_date)
     
     pdf_buffer = generate_receipt_pdf(
@@ -628,10 +677,7 @@ async def generate_receipt_pdf(
         description=transaction.description,
         category_name=transaction.category.name if transaction.category else "Sin categoría",
         payment_method=transaction.payment_method.value if transaction.payment_method else None,
-        
-        # AQUÍ PASAMOS LOS DATOS REALES:
         condominium_data=condominium_data,
-        
         reference_number=transaction.reference_number,
         unit_number=unit_number,
         resident_name=resident_name,

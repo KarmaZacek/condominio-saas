@@ -7,7 +7,7 @@ from typing import Optional
 from decimal import Decimal
 
 from fastapi import APIRouter, Depends, HTTPException, status, Query
-from sqlalchemy import select, func, or_
+from sqlalchemy import select, func, or_, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -45,10 +45,27 @@ async def list_units(
     """
     Lista viviendas con filtros y paginación.
     
-    - **Administradores**: ven todas las viviendas
+    - **Administradores**: ven todas las viviendas de su condominio
     - **Residentes**: solo ven su vivienda
     """
+    # ✅ CORRECCIÓN: Validar que el usuario tenga condominio asignado
+    if not current_user.condominium_id:
+        return UnitListResponse(
+            data=[],
+            summary=UnitSummary(
+                total_units=0, occupied=0, vacant=0,
+                maintenance=0, total_debt=Decimal("0"), units_with_debt=0
+            ),
+            pagination=PaginationMeta(
+                page=1, limit=limit, total_items=0,
+                total_pages=0, has_next=False, has_prev=False
+            )
+        )
+    
     query = select(Unit).options(selectinload(Unit.owner), selectinload(Unit.tenant))
+    
+    # ✅ FILTRO CRÍTICO: SIEMPRE filtrar por el condominio del usuario actual
+    query = query.where(Unit.condominium_id == current_user.condominium_id)
     
     # Si es residente, solo su vivienda
     if current_user.role == "resident":
@@ -73,7 +90,7 @@ async def list_units(
                 )
             )
     
-    # Filtros
+    # Filtros adicionales
     filters = []
     
     if status:
@@ -91,19 +108,29 @@ async def list_units(
         filters.append(Unit.unit_number.ilike(f"%{search}%"))
     
     if filters:
-        from sqlalchemy import and_
         query = query.where(and_(*filters))
     
-    # Contar total
-    count_query = select(func.count(Unit.id))
+    # Contar total (con filtro de condominio)
+    count_query = select(func.count(Unit.id)).where(
+        Unit.condominium_id == current_user.condominium_id
+    )
     if filters:
-        from sqlalchemy import and_
         count_query = count_query.where(and_(*filters))
+    
+    # Si es residente, filtrar también en el count
+    if current_user.role == "resident" and current_user.unit_id:
+        count_query = count_query.where(
+            or_(
+                Unit.id == current_user.unit_id,
+                Unit.owner_user_id == current_user.id,
+                Unit.tenant_user_id == current_user.id
+            )
+        )
     
     total_result = await db.execute(count_query)
     total_items = total_result.scalar()
     
-    # Resumen
+    # Resumen (con filtro de condominio)
     summary_query = select(
         func.count(),
         func.count().filter(Unit.status == UnitStatus.OCCUPIED),
@@ -111,7 +138,7 @@ async def list_units(
         func.count().filter(Unit.status == UnitStatus.MAINTENANCE),
         func.coalesce(func.sum(Unit.balance).filter(Unit.balance < 0), 0),
         func.count().filter(Unit.balance < 0)
-    )
+    ).where(Unit.condominium_id == current_user.condominium_id)
     
     summary_result = await db.execute(summary_query)
     summary_row = summary_result.one()
@@ -194,25 +221,31 @@ async def list_debtors(
     
     **Solo administradores**
     """
+    # ✅ CORRECCIÓN: Filtrar por condominio del usuario
     query = (
         select(Unit)
         .options(selectinload(Unit.owner), selectinload(Unit.tenant))
+        .where(Unit.condominium_id == current_user.condominium_id)
         .where(Unit.balance < 0)
         .order_by(Unit.balance)  # Los que más deben primero
     )
     
-    # Contar
+    # Contar (con filtro de condominio)
     count_result = await db.execute(
-        select(func.count(Unit.id)).where(Unit.balance < 0)
+        select(func.count(Unit.id))
+        .where(Unit.condominium_id == current_user.condominium_id)
+        .where(Unit.balance < 0)
     )
     total_items = count_result.scalar()
     
-    # Resumen
+    # Resumen (con filtro de condominio)
     summary_result = await db.execute(
         select(
             func.count(),
             func.coalesce(func.sum(Unit.balance), 0)
-        ).where(Unit.balance < 0)
+        )
+        .where(Unit.condominium_id == current_user.condominium_id)
+        .where(Unit.balance < 0)
     )
     summary_row = summary_result.one()
     
@@ -235,8 +268,8 @@ async def list_debtors(
             owner_user_id=u.owner_user_id,
             owner_name=u.owner.full_name if u.owner else None,
             tenant_user_id=str(u.tenant_user_id) if u.tenant_user_id else None,
-            tenant_name=unit.tenant.full_name if unit.tenant else None,
-            created_at=u.created_at,
+            tenant_name=u.tenant.full_name if u.tenant else None,
+            created_at=u.updated_at,
             updated_at=u.updated_at
         )
         for u in units
@@ -270,30 +303,23 @@ async def list_debtors(
     response_model=UnitResponse,
     summary="Obtener vivienda"
 )
-async def get_unit(
+async def get_unit_by_id(
     unit_id: str,
     current_user: AuthenticatedUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
     """
-    Obtiene detalles de una vivienda.
+    Obtiene una vivienda por ID.
     
-    - Los residentes solo pueden ver su propia vivienda
+    - **Administradores**: ven cualquier vivienda de su condominio
+    - **Residentes**: solo ven su vivienda
     """
-    # Verificar acceso para residentes
-    if current_user.role == "resident" and str(current_user.unit_id or '') != str(unit_id):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail={
-                "error": "FORBIDDEN",
-                "message": "No tienes acceso a esta vivienda"
-            }
-        )
-    
+    # ✅ CORRECCIÓN: Filtrar por condominio del usuario
     result = await db.execute(
         select(Unit)
         .options(selectinload(Unit.owner), selectinload(Unit.tenant))
         .where(Unit.id == unit_id)
+        .where(Unit.condominium_id == current_user.condominium_id)
     )
     unit = result.scalar_one_or_none()
     
@@ -305,6 +331,20 @@ async def get_unit(
                 "message": "Vivienda no encontrada"
             }
         )
+    
+    # Verificar acceso de residentes
+    if current_user.role == "resident":
+        if str(current_user.unit_id or '') != str(unit_id):
+            # Verificar si es propietario o inquilino
+            if str(unit.owner_user_id or '') != str(current_user.id) and \
+               str(unit.tenant_user_id or '') != str(current_user.id):
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail={
+                        "error": "FORBIDDEN",
+                        "message": "No tienes acceso a esta vivienda"
+                    }
+                )
     
     return UnitResponse(
         id=unit.id,
@@ -341,33 +381,40 @@ async def create_unit(
     
     **Solo administradores**
     """
-    # Verificar número único
+    # ✅ CORRECCIÓN: Verificar que el número de unidad sea único EN EL CONDOMINIO
     existing = await db.execute(
-        select(Unit).where(Unit.unit_number == data.unit_number)
+        select(Unit)
+        .where(Unit.unit_number == data.unit_number)
+        .where(Unit.condominium_id == current_user.condominium_id)
     )
     if existing.scalar_one_or_none():
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail={
                 "error": "UNIT_NUMBER_EXISTS",
-                "message": "Ya existe una vivienda con este número"
+                "message": "Ya existe una vivienda con este número en tu condominio"
             }
         )
     
-    # Verificar propietario si se especifica
+    # Validar propietario si se proporciona
     if data.owner_user_id:
         owner_result = await db.execute(
-            select(User).where(User.id == data.owner_user_id)
+            select(User)
+            .where(User.id == data.owner_user_id)
+            .where(User.condominium_id == current_user.condominium_id)
         )
-        if not owner_result.scalar_one_or_none():
+        owner = owner_result.scalar_one_or_none()
+        
+        if not owner:
             raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
+                status_code=status.HTTP_404_NOT_FOUND,
                 detail={
                     "error": "USER_NOT_FOUND",
-                    "message": "Usuario propietario no encontrado"
+                    "message": "Usuario propietario no encontrado en tu condominio"
                 }
             )
     
+    # ✅ CORRECCIÓN: Asignar automáticamente el condominium_id del usuario actual
     unit = Unit(
         unit_number=data.unit_number,
         building=data.building,
@@ -377,11 +424,13 @@ async def create_unit(
         monthly_fee=data.monthly_fee,
         owner_user_id=data.owner_user_id,
         notes=data.notes,
-        balance=Decimal("0")
+        balance=Decimal("0"),
+        condominium_id=current_user.condominium_id  # ✅ CRÍTICO
     )
     
     db.add(unit)
     await db.flush()
+    
     # Actualizar unit_id del usuario propietario
     if data.owner_user_id:
         owner_result = await db.execute(
@@ -429,8 +478,11 @@ async def update_unit(
     
     **Solo administradores**
     """
+    # ✅ CORRECCIÓN: Filtrar por condominio del usuario
     result = await db.execute(
-        select(Unit).where(Unit.id == unit_id)
+        select(Unit)
+        .where(Unit.id == unit_id)
+        .where(Unit.condominium_id == current_user.condominium_id)
     )
     unit = result.scalar_one_or_none()
     
@@ -439,16 +491,17 @@ async def update_unit(
             status_code=status.HTTP_404_NOT_FOUND,
             detail={
                 "error": "UNIT_NOT_FOUND",
-                "message": "Vivienda no encontrada"
+                "message": "Vivienda no encontrada en tu condominio"
             }
         )
     
     # Actualizar campos
     if data.unit_number is not None:
-        # Verificar unicidad
+        # ✅ CORRECCIÓN: Verificar unicidad EN EL CONDOMINIO
         existing = await db.execute(
             select(Unit)
             .where(Unit.unit_number == data.unit_number)
+            .where(Unit.condominium_id == current_user.condominium_id)
             .where(Unit.id != unit_id)
         )
         if existing.scalar_one_or_none():
@@ -456,7 +509,7 @@ async def update_unit(
                 status_code=status.HTTP_409_CONFLICT,
                 detail={
                     "error": "UNIT_NUMBER_EXISTS",
-                    "message": "Ya existe una vivienda con este número"
+                    "message": "Ya existe una vivienda con este número en tu condominio"
                 }
             )
         unit.unit_number = data.unit_number
@@ -487,12 +540,22 @@ async def update_unit(
         
         # Asignar unit_id al nuevo propietario
         if new_owner_id:
+            # ✅ CORRECCIÓN: Verificar que el nuevo propietario pertenezca al mismo condominio
             new_owner_result = await db.execute(
-                select(User).where(User.id == new_owner_id)
+                select(User)
+                .where(User.id == new_owner_id)
+                .where(User.condominium_id == current_user.condominium_id)
             )
             new_owner = new_owner_result.scalar_one_or_none()
-            if new_owner:
-                new_owner.unit_id = unit_id
+            if not new_owner:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail={
+                        "error": "USER_NOT_FOUND",
+                        "message": "Usuario no encontrado en tu condominio"
+                    }
+                )
+            new_owner.unit_id = unit_id
         
         unit.owner_user_id = new_owner_id
     if data.notes is not None:
@@ -539,16 +602,11 @@ async def get_unit_balance(
     - Calcula saldo corrido
     - Desglose mensual
     """
-    # Verificar acceso
-    if current_user.role == "resident" and str(current_user.unit_id or '') != str(unit_id):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail={"error": "FORBIDDEN"}
-        )
-    
-    # Obtener vivienda
+    # ✅ CORRECCIÓN: Verificar que la unidad pertenezca al condominio del usuario
     result = await db.execute(
-        select(Unit).where(Unit.id == unit_id)
+        select(Unit)
+        .where(Unit.id == unit_id)
+        .where(Unit.condominium_id == current_user.condominium_id)
     )
     unit = result.scalar_one_or_none()
     
@@ -556,6 +614,13 @@ async def get_unit_balance(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail={"error": "UNIT_NOT_FOUND"}
+        )
+    
+    # Verificar acceso de residentes
+    if current_user.role == "resident" and str(current_user.unit_id or '') != str(unit_id):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={"error": "FORBIDDEN"}
         )
     
     # Obtener transacciones
@@ -600,8 +665,11 @@ async def delete_unit(
     
     - No se puede eliminar si tiene transacciones asociadas
     """
+    # ✅ CORRECCIÓN: Filtrar por condominio del usuario
     result = await db.execute(
-        select(Unit).where(Unit.id == unit_id)
+        select(Unit)
+        .where(Unit.id == unit_id)
+        .where(Unit.condominium_id == current_user.condominium_id)
     )
     unit = result.scalar_one_or_none()
     

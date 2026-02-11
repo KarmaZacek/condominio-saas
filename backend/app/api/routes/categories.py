@@ -1,11 +1,11 @@
 """
 Rutas API para gestión de categorías
-CORREGIDO: Límite de paginación aumentado para selectores
+CORREGIDO: Límite de paginación aumentado para selectores + Filtrado por condominio
 """
 from uuid import UUID
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import select, func, and_
+from sqlalchemy import select, func, and_, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
@@ -22,7 +22,6 @@ router = APIRouter(prefix="/categories", tags=["Categorías"])
 @router.get("", response_model=PaginatedResponse[CategoryResponse])
 async def list_categories(
     page: int = Query(1, ge=1),
-    # ✅ CORRECCIÓN 1: Aumentamos el límite máximo a 1000 para permitir dropdowns completos
     limit: int = Query(100, ge=1, le=1000), 
     type: Optional[str] = Query(None, regex="^(income|expense)$"),
     is_system: Optional[bool] = None,
@@ -33,11 +32,21 @@ async def list_categories(
     """
     Lista todas las categorías con filtros opcionales.
     Accesible por todos los usuarios autenticados.
+    Muestra categorías del sistema (is_system=True) O categorías del condominio del usuario.
     """
-    query = select(Category).where(Category.is_active == True)
-    count_query = select(func.count(Category.id)).where(Category.is_active == True)
+    # ✅ CORRECCIÓN: Filtrar por condominio O categorías del sistema
+    base_filter = and_(
+        Category.is_active == True,
+        or_(
+            Category.is_system == True,  # Categorías del sistema (disponibles para todos)
+            Category.condominium_id == current_user.condominium_id  # Categorías del condominio
+        )
+    )
     
-    # Filtros
+    query = select(Category).where(base_filter)
+    count_query = select(func.count(Category.id)).where(base_filter)
+    
+    # Filtros adicionales
     if type:
         query = query.where(Category.type == type)
         count_query = count_query.where(Category.type == type)
@@ -86,9 +95,17 @@ async def get_category(
     """
     Obtiene una categoría por ID.
     """
+    # ✅ CORRECCIÓN: Verificar que sea del sistema O del condominio del usuario
     result = await db.execute(
         select(Category).where(
-            and_(Category.id == category_id, Category.is_active == True)
+            and_(
+                Category.id == category_id,
+                Category.is_active == True,
+                or_(
+                    Category.is_system == True,
+                    Category.condominium_id == current_user.condominium_id
+                )
+            )
         )
     )
     category = result.scalar_one_or_none()
@@ -96,7 +113,7 @@ async def get_category(
     if not category:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Categoría no encontrada"
+            detail="Categoría no encontrada en tu condominio"
         )
     
     return CategoryResponse.model_validate(category)
@@ -112,12 +129,13 @@ async def create_category(
     Crea una nueva categoría.
     Solo administradores.
     """
-    # Verificar nombre único
+    # ✅ CORRECCIÓN: Verificar nombre único EN EL CONDOMINIO
     existing = await db.execute(
         select(Category).where(
             and_(
                 func.lower(Category.name) == data.name.lower(),
                 Category.type == data.type,
+                Category.condominium_id == current_user.condominium_id,
                 Category.is_active == True
             )
         )
@@ -125,9 +143,10 @@ async def create_category(
     if existing.scalar_one_or_none():
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Ya existe una categoría con ese nombre para este tipo"
+            detail="Ya existe una categoría con ese nombre para este tipo en tu condominio"
         )
     
+    # ✅ CORRECCIÓN: Asignar condominium_id automáticamente
     category = Category(
         name=data.name,
         type=data.type,
@@ -135,7 +154,8 @@ async def create_category(
         color=data.color or "#6B7280",
         icon=data.icon or "folder",
         is_system=False,
-        is_active=True # ✅ CORRECCIÓN 2: Asegurar explícitamente que nace activa
+        is_active=True,
+        condominium_id=current_user.condominium_id  # ✅ CRÍTICO
     )
     
     db.add(category)
@@ -155,9 +175,14 @@ async def update_category(
     """
     Actualiza una categoría existente.
     """
+    # ✅ CORRECCIÓN: Verificar que pertenezca al condominio del usuario
     result = await db.execute(
         select(Category).where(
-            and_(Category.id == category_id, Category.is_active == True)
+            and_(
+                Category.id == category_id,
+                Category.is_active == True,
+                Category.condominium_id == current_user.condominium_id
+            )
         )
     )
     category = result.scalar_one_or_none()
@@ -165,7 +190,7 @@ async def update_category(
     if not category:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Categoría no encontrada"
+            detail="Categoría no encontrada en tu condominio"
         )
     
     if category.is_system:
@@ -174,7 +199,7 @@ async def update_category(
             detail="No se pueden modificar categorías del sistema"
         )
     
-    # Verificar nombre único si se está cambiando
+    # ✅ CORRECCIÓN: Verificar nombre único EN EL CONDOMINIO si se está cambiando
     if data.name and data.name.lower() != category.name.lower():
         existing = await db.execute(
             select(Category).where(
@@ -182,6 +207,7 @@ async def update_category(
                     func.lower(Category.name) == data.name.lower(),
                     Category.type == category.type,
                     Category.id != category_id,
+                    Category.condominium_id == current_user.condominium_id,
                     Category.is_active == True
                 )
             )
@@ -189,7 +215,7 @@ async def update_category(
         if existing.scalar_one_or_none():
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Ya existe una categoría con ese nombre"
+                detail="Ya existe una categoría con ese nombre en tu condominio"
             )
     
     # Actualizar campos
@@ -212,9 +238,14 @@ async def delete_category(
     """
     Elimina (soft delete) una categoría.
     """
+    # ✅ CORRECCIÓN: Verificar que pertenezca al condominio del usuario
     result = await db.execute(
         select(Category).where(
-            and_(Category.id == category_id, Category.is_active == True)
+            and_(
+                Category.id == category_id,
+                Category.is_active == True,
+                Category.condominium_id == current_user.condominium_id
+            )
         )
     )
     category = result.scalar_one_or_none()
@@ -222,7 +253,7 @@ async def delete_category(
     if not category:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Categoría no encontrada"
+            detail="Categoría no encontrada en tu condominio"
         )
     
     if category.is_system:
@@ -231,9 +262,11 @@ async def delete_category(
             detail="No se pueden eliminar categorías del sistema"
         )
     
-    # Verificar si tiene transacciones
+    # ✅ CORRECCIÓN: Verificar transacciones DEL CONDOMINIO
     tx_count = await db.execute(
-        select(func.count(Transaction.id)).where(Transaction.category_id == category_id)
+        select(func.count(Transaction.id))
+        .where(Transaction.category_id == category_id)
+        .where(Transaction.condominium_id == current_user.condominium_id)
     )
     if tx_count.scalar() > 0:
         raise HTTPException(
@@ -258,9 +291,17 @@ async def get_category_stats(
     """
     from datetime import datetime
     
+    # ✅ CORRECCIÓN: Verificar que la categoría sea del sistema O del condominio
     result = await db.execute(
         select(Category).where(
-            and_(Category.id == category_id, Category.is_active == True)
+            and_(
+                Category.id == category_id,
+                Category.is_active == True,
+                or_(
+                    Category.is_system == True,
+                    Category.condominium_id == current_user.condominium_id
+                )
+            )
         )
     )
     category = result.scalar_one_or_none()
@@ -271,10 +312,11 @@ async def get_category_stats(
             detail="Categoría no encontrada"
         )
     
-    # Filtro base
+    # ✅ CORRECCIÓN: Filtro base incluye condominium_id
     base_filter = and_(
         Transaction.category_id == category_id,
-        Transaction.status == "completed"
+        Transaction.status == "completed",
+        Transaction.condominium_id == current_user.condominium_id  # ✅ CRÍTICO
     )
     
     # Filtro por año
@@ -296,7 +338,7 @@ async def get_category_stats(
     stats_result = await db.execute(stats_query)
     stats = stats_result.one()
     
-    # Transacciones por mes
+    # ✅ CORRECCIÓN: Transacciones por mes filtradas por condominio
     current_year = year or datetime.now().year
     monthly_query = select(
         func.extract('month', Transaction.transaction_date).label("month"),
@@ -306,6 +348,7 @@ async def get_category_stats(
         and_(
             Transaction.category_id == category_id,
             Transaction.status == "completed",
+            Transaction.condominium_id == current_user.condominium_id,  # ✅ CRÍTICO
             func.extract('year', Transaction.transaction_date) == current_year
         )
     ).group_by(
