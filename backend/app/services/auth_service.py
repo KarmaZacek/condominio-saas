@@ -107,7 +107,7 @@ class AuthService:
             sub=user.id,
             email=user.email,
             role=user.role.value,
-            unit_id=user.unit_id,  # Se puede agregar si el usuario tiene unidad
+            unit_id=user.unit_id,
             permissions=get_permissions_for_role(user.role.value)
         )
         
@@ -225,24 +225,22 @@ class AuthService:
         return True
     
     async def get_user_by_id(self, user_id: str) -> Optional[User]:
-        """Obtiene usuario por ID."""
+        """Obtiene usuario por ID con su condominio."""
         result = await self.db.execute(
             select(User)
-            .options(selectinload(User.condominium)) # <--- AGREGAR ESTO AQUÍ
+            .options(selectinload(User.condominium))
             .where(User.id == user_id)
         )
-        result = await self.db.execute(query)
-        return result.scalars().first()
+        return result.scalar_one_or_none()
     
     async def get_user_by_email(self, email: str) -> Optional[User]:
-        """Obtiene usuario por email."""
+        """Obtiene usuario por email con su condominio."""
         result = await self.db.execute(
             select(User)
-            .options(selectinload(User.condominium)) # <--- TAMBIÉN AQUÍ
+            .options(selectinload(User.condominium))
             .where(User.email == email)
         )
-        result = await self.db.execute(query)
-        return result.scalars().first()
+        return result.scalar_one_or_none()
     
     async def update_password(
         self, 
