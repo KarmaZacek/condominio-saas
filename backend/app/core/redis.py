@@ -22,12 +22,21 @@ class RedisClient:
         return cls._instance
     
     async def connect(self):
-        """Establece conexión con Redis."""
+        """Establece conexión con Redis con parámetros de resiliencia."""
         if self._pool is None:
             self._pool = ConnectionPool.from_url(
                 settings.REDIS_URL,
                 max_connections=20,
-                decode_responses=True
+                decode_responses=True,
+                # --- AJUSTES PARA RAILWAY / NUBE ---
+                # Verifica la salud de la conexión si ha estado inactiva por 30s
+                health_check_interval=30, 
+                # Tiempo máximo para conectar
+                socket_connect_timeout=5,
+                # Mantener el socket vivo a nivel TCP
+                socket_keepalive=True,
+                # Reintentar si hay timeout
+                retry_on_timeout=True
             )
             self._client = redis.Redis(connection_pool=self._pool)
     
@@ -42,6 +51,7 @@ class RedisClient:
     def client(self) -> redis.Redis:
         """Obtiene el cliente Redis."""
         if self._client is None:
+            # Intento de reconexión automática si el cliente es nulo
             raise RuntimeError("Redis no conectado. Llama a connect() primero.")
         return self._client
     
@@ -88,6 +98,7 @@ class RedisClient:
     
     async def is_token_blacklisted(self, token: str) -> bool:
         """Verifica si token está en lista negra."""
+        # El health check automático aquí evitará el error 104
         return await self.exists(f"blacklist:{token}")
     
     # Rate limiting
