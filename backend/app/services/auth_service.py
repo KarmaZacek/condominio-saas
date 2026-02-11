@@ -6,6 +6,7 @@ from datetime import datetime, timezone, timedelta
 from typing import Optional, Tuple
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.models.models import User, RefreshToken, UserRole
 from app.schemas.auth import (
@@ -226,16 +227,22 @@ class AuthService:
     async def get_user_by_id(self, user_id: str) -> Optional[User]:
         """Obtiene usuario por ID."""
         result = await self.db.execute(
-            select(User).where(User.id == user_id)
+            select(User)
+            .options(selectinload(User.condominium)) # <--- AGREGAR ESTO AQUÍ
+            .where(User.id == user_id)
         )
-        return result.scalar_one_or_none()
+        result = await self.db.execute(query)
+        return result.scalars().first()
     
     async def get_user_by_email(self, email: str) -> Optional[User]:
         """Obtiene usuario por email."""
         result = await self.db.execute(
-            select(User).where(User.email == email.lower())
+            select(User)
+            .options(selectinload(User.condominium)) # <--- TAMBIÉN AQUÍ
+            .where(User.email == email)
         )
-        return result.scalar_one_or_none()
+        result = await self.db.execute(query)
+        return result.scalars().first()
     
     async def update_password(
         self, 

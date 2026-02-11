@@ -1,6 +1,8 @@
 from fastapi import Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
+from sqlalchemy.orm import selectinload # <--- 1. IMPORTAR ESTO
+
 from app.models.models import User
 from app.core.database import get_db
 from app.middleware.auth import get_current_user
@@ -10,15 +12,22 @@ def get_user_service(db: AsyncSession = Depends(get_db)) -> UserService:
     return UserService(db)
 
 async def get_current_active_user(
-    current_user = Depends(get_current_user), # Objeto ligero del token
-    db: AsyncSession = Depends(get_db)        # Sesión ASÍNCRONA
+    current_user = Depends(get_current_user), 
+    db: AsyncSession = Depends(get_db)       
 ) -> User:
     """
     Versión Async: Busca al usuario completo en la BD usando su ID.
+    Carga ansiosa (Eager Loading) del condominio para evitar errores 502.
     """
     
-    # Usamos sintaxis moderna de SQLAlchemy (select + await)
-    result = await db.execute(select(User).filter(User.id == current_user.id))
+    # 2. AGREGAR .options(selectinload(User.condominium))
+    query = (
+        select(User)
+        .options(selectinload(User.condominium)) # <--- ¡ESTO ES LA CLAVE!
+        .filter(User.id == current_user.id)
+    )
+    
+    result = await db.execute(query)
     user_db = result.scalars().first()
     
     if not user_db:
