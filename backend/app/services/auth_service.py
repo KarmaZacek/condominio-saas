@@ -102,11 +102,12 @@ class AuthService:
         user.locked_until = None
         user.last_login = datetime.now(timezone.utc)
         
-        # Generar tokens
+        # ✅ CORRECCIÓN: Generar tokens CON condominium_id
         token_payload = TokenPayload(
             sub=user.id,
             email=user.email,
             role=user.role.value,
+            condominium_id=user.condominium_id,  # ✅ AGREGADO
             unit_id=user.unit_id,
             permissions=get_permissions_for_role(user.role.value)
         )
@@ -170,11 +171,12 @@ class AuthService:
         if not user or not user.is_active:
             raise ValueError("INVALID_REFRESH_TOKEN")
         
-        # Generar nuevo access token
+        # ✅ CORRECCIÓN: Generar nuevo access token CON condominium_id
         token_payload = TokenPayload(
             sub=user.id,
             email=user.email,
             role=user.role.value,
+            condominium_id=user.condominium_id,  # ✅ AGREGADO
             unit_id=user.unit_id,
             permissions=get_permissions_for_role(user.role.value)
         )

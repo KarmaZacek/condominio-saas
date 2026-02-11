@@ -141,12 +141,14 @@ class TokenPayload:
         sub: str,
         email: str,
         role: str,
+        condominium_id: Optional[str] = None,  # ✅ AGREGADO
         unit_id: Optional[str] = None,
         permissions: list[str] = None
     ):
         self.sub = sub  # user_id
         self.email = email
         self.role = role
+        self.condominium_id = condominium_id  # ✅ AGREGADO
         self.unit_id = unit_id
         self.permissions = permissions or []
     
@@ -155,6 +157,7 @@ class TokenPayload:
             "sub": self.sub,
             "email": self.email,
             "role": self.role,
+            "condominium_id": self.condominium_id,  # ✅ AGREGADO
             "unit_id": self.unit_id,
             "permissions": self.permissions
         }
@@ -165,6 +168,7 @@ class TokenPayload:
             sub=data.get("sub"),
             email=data.get("email"),
             role=data.get("role"),
+            condominium_id=data.get("condominium_id"),  # ✅ AGREGADO
             unit_id=data.get("unit_id"),
             permissions=data.get("permissions", [])
         )

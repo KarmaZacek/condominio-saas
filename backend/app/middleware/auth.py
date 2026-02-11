@@ -25,12 +25,14 @@ class AuthenticatedUser:
         id: str,
         email: str,
         role: str,
+        condominium_id: Optional[str] = None,  # ✅ AGREGADO
         unit_id: Optional[str] = None,
         permissions: List[str] = None
     ):
         self.id = id
         self.email = email
         self.role = role
+        self.condominium_id = condominium_id  # ✅ AGREGADO
         self.unit_id = unit_id
         self.permissions = permissions or []
     
@@ -110,6 +112,7 @@ async def get_current_user(
             id=user_id,
             email=email,
             role=role,
+            condominium_id=payload.get("condominium_id"),  # ✅ AGREGADO
             unit_id=payload.get("unit_id"),
             permissions=payload.get("permissions", [])
         )
