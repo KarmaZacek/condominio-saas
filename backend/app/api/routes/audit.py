@@ -73,6 +73,10 @@ async def list_audit_logs(
     where_clauses = []
     params = {"limit": limit, "offset": offset}
     
+    # ✅ CRÍTICO: Filtro por condominio (Multi-tenancy)
+    where_clauses.append("al.condominium_id = :condominium_id")
+    params["condominium_id"] = str(current_user.condominium_id)
+    
     if user_id:
         where_clauses.append("al.user_id = :user_id")
         params["user_id"] = user_id
@@ -172,6 +176,10 @@ async def get_audit_summary(
     where_clauses = []
     params = {}
     
+    # ✅ CRÍTICO: Filtro por condominio (Multi-tenancy)
+    where_clauses.append("condominium_id = :condominium_id")
+    params["condominium_id"] = str(current_user.condominium_id)
+    
     if from_date:
         where_clauses.append("created_at::date >= :from_date")
         params["from_date"] = from_date
@@ -211,7 +219,7 @@ async def get_audit_summary(
         SELECT u.id::text, u.full_name, COUNT(al.id) as action_count
         FROM audit_logs al
         JOIN users u ON al.user_id = u.id
-        WHERE {where_sql.replace('created_at', 'al.created_at') if where_clauses else '1=1'}
+        WHERE {where_sql.replace('condominium_id', 'al.condominium_id') if where_clauses else '1=1'}
         GROUP BY u.id, u.full_name
         ORDER BY action_count DESC
         LIMIT 10
@@ -260,11 +268,17 @@ async def get_entity_history(
             al.created_at
         FROM audit_logs al
         LEFT JOIN users u ON al.user_id = u.id
-        WHERE al.entity_type = :entity_type AND al.entity_id = :entity_id
+        WHERE al.entity_type = :entity_type 
+          AND al.entity_id = :entity_id
+          AND al.condominium_id = :condominium_id
         ORDER BY al.created_at DESC
     """)
     
-    result = await db.execute(query_sql, {"entity_type": entity_type, "entity_id": entity_id})
+    result = await db.execute(query_sql, {
+        "entity_type": entity_type, 
+        "entity_id": entity_id,
+        "condominium_id": str(current_user.condominium_id)
+    })
     rows = result.fetchall()
     
     return [

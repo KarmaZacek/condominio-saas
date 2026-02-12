@@ -31,26 +31,6 @@ from app.middleware.auth import (
 router = APIRouter(prefix="/transactions", tags=["Transacciones"])
 
 
-async def log_audit(
-    db: AsyncSession,
-    user_id: str,
-    action: AuditAction,
-    entity_id: str,
-    old_values: dict = None,
-    new_values: dict = None
-):
-    """Helper para registrar auditoría de transacciones."""
-    audit = AuditLog(
-        user_id=user_id,
-        action=action,
-        entity_type="transaction",
-        entity_id=entity_id,
-        old_values=old_values,
-        new_values=new_values
-    )
-    db.add(audit)
-
-
 # =====================================================
 # ENDPOINT: Gastos del Condominio (para residentes)
 # =====================================================
@@ -234,8 +214,11 @@ async def create_transaction(
             db=db,
             user_id=current_user.id,
             action=AuditAction.CREATE,
+            entity_type="transaction",  # ✅ AGREGADO
             entity_id=str(result.transaction.id),
-            new_values=result.transaction.__dict__
+            condominium_id=current_user.condominium_id,  # ✅ CRÍTICO
+            new_values=result.transaction.__dict__,
+            old_values=None
         )
         
         await db.commit()
@@ -311,7 +294,9 @@ async def update_transaction(
             db=db,
             user_id=current_user.id,
             action=AuditAction.UPDATE,
+            entity_type="transaction",  # ✅ AGREGADO
             entity_id=transaction_id,
+            condominium_id=current_user.condominium_id,  # ✅ CRÍTICO
             old_values=old_transaction.__dict__,
             new_values=result.transaction.__dict__
         )
@@ -383,8 +368,11 @@ async def delete_transaction(
             db=db,
             user_id=current_user.id,
             action=AuditAction.DELETE,
+            entity_type="transaction",  # ✅ AGREGADO
             entity_id=transaction_id,
-            old_values=transaction.__dict__
+            condominium_id=current_user.condominium_id,  # ✅ CRÍTICO
+            old_values=transaction.__dict__,
+            new_values=None
         )
         
         await db.commit()
@@ -494,6 +482,7 @@ async def upload_receipt(
         # Registrar auditoría
         audit = AuditLog(
             user_id=current_user.id,
+            condominium_id=current_user.condominium_id,  # ✅ CRÍTICO
             action=AuditAction.UPDATE,
             entity_type="transaction",
             entity_id=transaction_id,

@@ -51,12 +51,38 @@ async def register(
             created_at=user.created_at
         )
     except ValueError as e:
-        if str(e) == "EMAIL_EXISTS":
+        error = str(e)
+        
+        if error == "EMAIL_EXISTS":
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail={
                     "error": "EMAIL_EXISTS",
                     "message": "Este correo ya está registrado"
+                }
+            )
+        elif error == "INVALID_INVITATION_CODE":
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={
+                    "error": "INVALID_INVITATION_CODE",
+                    "message": "Código de invitación inválido o ya utilizado"
+                }
+            )
+        elif error == "INVITATION_CODE_EXPIRED":
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={
+                    "error": "INVITATION_CODE_EXPIRED",
+                    "message": "El código de invitación ha expirado"
+                }
+            )
+        elif error == "INVITATION_EMAIL_MISMATCH":
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={
+                    "error": "INVITATION_EMAIL_MISMATCH",
+                    "message": "Este código de invitación es para otro email"
                 }
             )
         raise

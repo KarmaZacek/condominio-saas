@@ -91,6 +91,61 @@ class AuditAction(str, enum.Enum):
 
 
 # Modelos
+class InvitationCode(Base):
+    """Códigos de invitación para registro de usuarios."""
+    
+    __tablename__ = "invitation_codes"
+    
+    id: Mapped[str] = mapped_column(
+        UUID(as_uuid=False),
+        primary_key=True,
+        default=lambda: str(uuid4())
+    )
+    code: Mapped[str] = mapped_column(String(50), unique=True, index=True)
+    condominium_id: Mapped[str] = mapped_column(
+        UUID(as_uuid=False),
+        ForeignKey("condominiums.id", ondelete="CASCADE"),
+        index=True
+    )
+    unit_id: Mapped[Optional[str]] = mapped_column(
+        UUID(as_uuid=False),
+        ForeignKey("units.id", ondelete="CASCADE"),
+        nullable=True
+    )
+    email: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    role: Mapped[str] = mapped_column(String(20), default="RESIDENT")
+    is_used: Mapped[bool] = mapped_column(Boolean, default=False)
+    used_by_user_id: Mapped[Optional[str]] = mapped_column(
+        UUID(as_uuid=False),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True
+    )
+    expires_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True
+    )
+    created_by: Mapped[Optional[str]] = mapped_column(
+        UUID(as_uuid=False),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now()
+    )
+    
+    # Relaciones
+    condominium: Mapped["Condominium"] = relationship("Condominium")
+    unit: Mapped[Optional["Unit"]] = relationship("Unit")
+    created_by_user: Mapped[Optional["User"]] = relationship(
+        "User",
+        foreign_keys=[created_by]
+    )
+    used_by_user: Mapped[Optional["User"]] = relationship(
+        "User",
+        foreign_keys=[used_by_user_id]
+    )
+
 class User(Base):
     """Modelo de usuarios."""
     
@@ -485,6 +540,15 @@ class AuditLog(Base):
         nullable=True,
         index=True
     )
+    
+    # ✅ NUEVA COLUMNA
+    condominium_id: Mapped[Optional[str]] = mapped_column(
+        UUID(as_uuid=False),
+        ForeignKey("condominiums.id", ondelete="CASCADE"),
+        nullable=True,
+        index=True
+    )
+    
     action: Mapped[AuditAction] = mapped_column(Enum(AuditAction, values_callable=lambda x: [e.value for e in x]), index=True)
     entity_type: Mapped[str] = mapped_column(String(50))
     entity_id: Mapped[Optional[str]] = mapped_column(
@@ -507,8 +571,15 @@ class AuditLog(Base):
         back_populates="audit_logs"
     )
     
+    # ✅ NUEVA RELACIÓN
+    condominium: Mapped[Optional["Condominium"]] = relationship(
+        "Condominium",
+        back_populates="audit_logs"
+    )
+    
     __table_args__ = (
         Index("idx_audit_logs_entity", "entity_type", "entity_id"),
+        Index("idx_audit_logs_condominium", "condominium_id"),  # ✅ NUEVO ÍNDICE
     )
     
     def __repr__(self):

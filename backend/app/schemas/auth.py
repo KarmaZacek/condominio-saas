@@ -15,7 +15,7 @@ class UserRegister(BaseModel):
     password: str = Field(..., min_length=8, max_length=100)
     full_name: str = Field(..., min_length=2, max_length=150)
     phone: Optional[str] = Field(None, max_length=20)
-    unit_number: Optional[str] = Field(None, max_length=10)
+    invitation_code: str = Field(..., min_length=6, max_length=50)  # ✅ NUEVO
     
     @field_validator('password')
     @classmethod
@@ -30,7 +30,6 @@ class UserRegister(BaseModel):
     @classmethod
     def validate_phone(cls, v):
         if v is not None:
-            # Formato mexicano: 10 dígitos
             cleaned = re.sub(r'[^\d]', '', v)
             if len(cleaned) != 10:
                 raise ValueError('El teléfono debe tener 10 dígitos')

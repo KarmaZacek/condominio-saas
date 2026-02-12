@@ -30,27 +30,55 @@ class AuthService:
     
     async def register(self, data: UserRegister) -> User:
         """
-        Registra un nuevo usuario.
+        Registra un nuevo usuario usando código de invitación.
         Los usuarios nuevos requieren activación por admin.
         """
-        # Verificar email único
+        from app.models.models import InvitationCode  # Import aquí para evitar circular
+        
+        # ✅ PASO 1: Validar código de invitación
+        invitation_result = await self.db.execute(
+            select(InvitationCode)
+            .where(InvitationCode.code == data.invitation_code)
+            .where(InvitationCode.is_used == False)
+        )
+        invitation = invitation_result.scalar_one_or_none()
+        
+        if not invitation:
+            raise ValueError("INVALID_INVITATION_CODE")
+        
+        # Verificar expiración
+        if invitation.expires_at and invitation.expires_at < datetime.now(timezone.utc):
+            raise ValueError("INVITATION_CODE_EXPIRED")
+        
+        # Verificar email específico (si la invitación es para un email específico)
+        if invitation.email and invitation.email.lower() != data.email.lower():
+            raise ValueError("INVITATION_EMAIL_MISMATCH")
+        
+        # ✅ PASO 2: Verificar email único globalmente
         existing = await self.db.execute(
             select(User).where(User.email == data.email.lower())
         )
         if existing.scalar_one_or_none():
             raise ValueError("EMAIL_EXISTS")
         
-        # Crear usuario
+        # ✅ PASO 3: Crear usuario CON condominium_id de la invitación
         user = User(
             email=data.email.lower(),
             password_hash=hash_password(data.password),
             full_name=data.full_name,
             phone=data.phone,
-            role=UserRole.RESIDENT,
+            condominium_id=invitation.condominium_id,  # ✅ CRÍTICO
+            unit_id=invitation.unit_id,  # ✅ Asignar unidad si existe
+            role=invitation.role if hasattr(invitation, 'role') else UserRole.RESIDENT,
             is_active=False  # Requiere activación
         )
         
         self.db.add(user)
+        await self.db.flush()
+        
+        # ✅ PASO 4: Marcar invitación como usada
+        invitation.is_used = True
+        invitation.used_by_user_id = user.id
         await self.db.flush()
         
         return user
