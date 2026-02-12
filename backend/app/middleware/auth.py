@@ -3,6 +3,7 @@ Middleware de autenticación y autorización.
 """
 
 from typing import Optional, List
+from uuid import UUID  # ✅ AGREGADO
 import logging
 from fastapi import Depends, HTTPException, status, Request
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
@@ -25,8 +26,8 @@ class AuthenticatedUser:
         id: str,
         email: str,
         role: str,
-        condominium_id: Optional[str] = None,  # ✅ AGREGADO
-        unit_id: Optional[str] = None,
+        condominium_id: Optional[UUID] = None,  # ✅ Cambiado de str a UUID
+        unit_id: Optional[UUID] = None,  # ✅ Cambiado de str a UUID
         permissions: List[str] = None
     ):
         self.id = id
@@ -112,8 +113,8 @@ async def get_current_user(
             id=user_id,
             email=email,
             role=role,
-            condominium_id=payload.get("condominium_id"),  # ✅ AGREGADO
-            unit_id=payload.get("unit_id"),
+            condominium_id=UUID(payload.get("condominium_id")) if payload.get("condominium_id") else None,  # ✅ Convertir a UUID
+            unit_id=UUID(payload.get("unit_id")) if payload.get("unit_id") else None,  # ✅ Convertir a UUID
             permissions=payload.get("permissions", [])
         )
         

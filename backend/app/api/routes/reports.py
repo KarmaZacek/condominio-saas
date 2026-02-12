@@ -35,6 +35,11 @@ async def get_dashboard(
     Obtiene datos del dashboard principal.
     Los residentes ven solo sus datos, los admin ven todo del condominio.
     """
+    # 🔍 DEBUG: Verificar condominium_id
+    import logging
+    logger = logging.getLogger(__name__)
+    logger.info(f"🔍 Dashboard called by: {current_user.email}, Condo ID: {current_user.condominium_id}, Role: {current_user.role}")
+    
     is_admin = current_user.role == "admin"
     today = date.today()
     current_month_start = today.replace(day=1)
