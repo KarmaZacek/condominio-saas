@@ -157,8 +157,8 @@ class TokenPayload:
             "sub": self.sub,
             "email": self.email,
             "role": self.role,
-            "condominium_id": self.condominium_id,  # ✅ AGREGADO
-            "unit_id": self.unit_id,
+            "condominium_id": str(self.condominium_id) if self.condominium_id else None,  # ✅ Convertir UUID a string
+            "unit_id": str(self.unit_id) if self.unit_id else None,  # ✅ Convertir UUID a string también
             "permissions": self.permissions
         }
     
