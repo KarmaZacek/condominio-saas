@@ -58,11 +58,17 @@ class TransactionService:
         is_advance: Optional[bool] = None,
         is_late: Optional[bool] = None,
         user_id: Optional[str] = None,
-        user_role: str = "admin"
+        user_role: str = "admin",
+        condominium_id: Optional[str] = None  # ✅ AGREGADO para multi-tenancy
     ) -> TransactionListResponse:
         
         # --- 1. Filtros ---
         filters = []
+        
+        # ✅ CRÍTICO: Filtro por condominio (Multi-tenancy)
+        if condominium_id:
+            filters.append(Transaction.condominium_id == condominium_id)
+        
         if type: 
             filters.append(Transaction.type == type)
         if category_id: filters.append(Transaction.category_id == category_id)
@@ -97,8 +103,17 @@ class TransactionService:
             
         # ------------------------------------------------------------------
         # NUEVO: Obtener ID de "Emisión de Cuota" para excluirlo de sumas
+        # ✅ CRÍTICO: Filtrar por condominio si está disponible
         # ------------------------------------------------------------------
-        cat_query = select(Category.id).where(Category.name == "Emisión de Cuota")
+        cat_conditions = [Category.name == "Emisión de Cuota"]
+        if condominium_id:
+            cat_conditions.append(
+                or_(
+                    Category.is_system == True,
+                    Category.condominium_id == condominium_id
+                )
+            )
+        cat_query = select(Category.id).where(and_(*cat_conditions))
         cat_result = await self.db.execute(cat_query)
         internal_charge_id = cat_result.scalar()
         
@@ -120,8 +135,17 @@ class TransactionService:
 
         # ------------------------------------------------------------------
         # Obtener IDs de categorías NO comunes (ej: Multas) para excluir sus GASTOS
+        # ✅ CRÍTICO: Filtrar por condominio si está disponible
         # ------------------------------------------------------------------
-        non_common_query = select(Category.id).where(Category.is_common_expense == False)
+        non_common_conditions = [Category.is_common_expense == False]
+        if condominium_id:
+            non_common_conditions.append(
+                or_(
+                    Category.is_system == True,
+                    Category.condominium_id == condominium_id
+                )
+            )
+        non_common_query = select(Category.id).where(and_(*non_common_conditions))
         non_common_result = await self.db.execute(non_common_query)
         non_common_ids = [row[0] for row in non_common_result.fetchall()]
         
