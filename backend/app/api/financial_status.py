@@ -134,7 +134,16 @@ async def get_financial_status(
     
     # 🔍 1. IDENTIFICAR CATEGORÍA DE CARGO VIRTUAL
     # Buscamos el ID de la categoría que usamos para generar deuda pero que no es gasto real
-    cat_query = select(Category.id).where(Category.name == "Emisión de Cuota")
+    # ✅ CRÍTICO: Filtrar por condominio
+    cat_query = select(Category.id).where(
+        and_(
+            Category.name == "Emisión de Cuota",
+            or_(
+                Category.is_system == True,
+                Category.condominium_id == current_user.condominium_id
+            )
+        )
+    )
     cat_result = await db.execute(cat_query)
     internal_charge_id = cat_result.scalar()
 
@@ -146,6 +155,7 @@ async def get_financial_status(
     # 2. CÁLCULO DE SALDO INICIAL (REMANENTE)
     # ========================================
     # Suma de (Ingresos - Gastos Reales) ANTES del mes consultado
+    # ✅ CRÍTICO: Filtrar por condominio
     
     initial_balance_query = select(
         func.coalesce(func.sum(
@@ -163,6 +173,7 @@ async def get_financial_status(
         ), 0)
     ).where(and_(
         base_filter,
+        Transaction.condominium_id == current_user.condominium_id,  # ✅ Filtro multi-tenancy
         Transaction.transaction_date < month_start
     ))
     
@@ -268,7 +279,10 @@ async def get_financial_status(
     ).outerjoin( # <--- ✅ CAMBIO CRÍTICO: Usar 'outerjoin' (LEFT JOIN)
         Category, 
         Transaction.category_id == Category.id
-    ).where(base_filter)
+    ).where(and_(
+        base_filter,
+        Transaction.condominium_id == current_user.condominium_id  # ✅ Filtro multi-tenancy
+    ))
     
     income_result = await db.execute(income_query)
     income_data = income_result.one()
@@ -276,11 +290,13 @@ async def get_financial_status(
     # ========================================
     # 4. RESERVA DE ADELANTOS
     # ========================================
+    # ✅ CRÍTICO: Filtrar por condominio
     
     reserve_query = select(
         func.coalesce(func.sum(Transaction.amount), 0)
     ).where(and_(
         base_filter,
+        Transaction.condominium_id == current_user.condominium_id,  # ✅ Filtro multi-tenancy
         Transaction.type == CategoryType.INCOME,
         Transaction.fiscal_period > period
     ))
@@ -299,6 +315,7 @@ async def get_financial_status(
         func.count(func.distinct(Transaction.unit_id)).label("units_count")
     ).where(and_(
         base_filter,
+        Transaction.condominium_id == current_user.condominium_id,  # ✅ Filtro multi-tenancy
         Transaction.type == CategoryType.INCOME,
         Transaction.fiscal_period > period
     )).group_by(Transaction.fiscal_period).order_by(Transaction.fiscal_period)
@@ -317,6 +334,7 @@ async def get_financial_status(
         selectinload(Transaction.unit).selectinload(Unit.owner)
     ).where(and_(
         base_filter,
+        Transaction.condominium_id == current_user.condominium_id,  # ✅ Filtro multi-tenancy
         Transaction.type == CategoryType.INCOME,
         Transaction.fiscal_period > period,
         Transaction.unit_id.isnot(None)
@@ -340,6 +358,7 @@ async def get_financial_status(
         selectinload(Transaction.unit).selectinload(Unit.owner)
     ).where(and_(
         base_filter,
+        Transaction.condominium_id == current_user.condominium_id,  # ✅ Filtro multi-tenancy
         Transaction.type == CategoryType.INCOME,
         Transaction.fiscal_period < period,
         Transaction.transaction_date >= month_start,
