@@ -52,6 +52,9 @@ class Settings(BaseSettings):
     # File Upload
     MAX_FILE_SIZE_MB: int = 10
     ALLOWED_FILE_TYPES: str = "image/jpeg,image/png,image/gif,application/pdf"
+
+    # Super Admin
+    SUPER_ADMIN_KEY: str = "tu_clave_secreta_super_segura_123"
     
     @property
     def allowed_origins_list(self) -> List[str]:

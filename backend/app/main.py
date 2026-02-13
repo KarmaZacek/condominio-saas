@@ -28,7 +28,7 @@ from app.middleware.auth import get_current_user, require_role, AuthenticatedUse
 from app.services.automation import generate_monthly_fees_job
 from zoneinfo import ZoneInfo  # <--- AGREGA ESTO
 from app.api.routes import invitations
-
+from app.api.routes.super_admin import router as super_admin_router
 
 # Configurar logging
 logging.basicConfig(
@@ -224,6 +224,7 @@ app.include_router(audit.router, prefix="/v1")
 app.include_router(financial_status_router, prefix="/v1")
 app.include_router(admin_router) # ✅ Incluimos la ruta de administración manual
 app.include_router(invitations.router, prefix="/v1")
+app.include_router(super_admin_router, prefix="/v1")
 
 # Servir archivos estáticos
 UPLOAD_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "uploads")

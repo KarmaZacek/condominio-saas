@@ -42,6 +42,7 @@ class UserRole(str, enum.Enum):
     ADMIN = "admin"
     RESIDENT = "resident"
     ACCOUNTANT = "accountant"
+    SUPER_ADMIN = "super_admin"  # ✅ NUEVO
 
 class BoardPosition(str, enum.Enum):
     PRESIDENT = "president"
