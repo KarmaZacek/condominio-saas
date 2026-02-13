@@ -37,6 +37,11 @@ class Condominium(Base):
     units = relationship("Unit", back_populates="condominium", cascade="all, delete-orphan")
     transactions = relationship("Transaction", back_populates="condominium", cascade="all, delete-orphan")
     categories = relationship("Category", back_populates="condominium", cascade="all, delete-orphan")
+    audit_logs: Mapped[List["AuditLog"]] = relationship(
+        "AuditLog",
+        back_populates="condominium",
+        cascade="all, delete-orphan"
+    )
 
 class UserRole(str, enum.Enum):
     ADMIN = "admin"
