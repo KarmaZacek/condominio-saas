@@ -9,7 +9,7 @@ from app.core.database import get_db
 from app.middleware.super_admin import require_super_admin
 from app.middleware.auth import AuthenticatedUser
 from app.schemas.super_admin import DashboardResponse
-from app.services.super_admin_dashboard_service import (
+from app.services.super_admin_dashboard import (
     get_super_admin_dashboard_service,
     SuperAdminDashboardService
 )
