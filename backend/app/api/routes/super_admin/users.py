@@ -2,15 +2,41 @@
 Rutas de API para gestión de usuarios del Super Admin.
 """
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Header, HTTPException
 from typing import Optional
 
-from app.api.dependencies.auth import get_current_super_admin
 from app.services.super_admin_users import SuperAdminUserService
-from app.api.dependencies.super_admin import verify_super_admin_access
+from app.core.security import verify_token
+from app.core.config import settings
 
 
 router = APIRouter()
+
+
+# Dependencias de autenticación
+async def get_current_super_admin(authorization: str = Header(...)):
+    """Verifica el token JWT del super admin."""
+    if not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Invalid authorization header")
+    
+    token = authorization.replace("Bearer ", "")
+    payload = verify_token(token)
+    
+    if not payload:
+        raise HTTPException(status_code=401, detail="Invalid or expired token")
+    
+    if payload.get("role") != "super_admin":
+        raise HTTPException(status_code=403, detail="Super admin access required")
+    
+    return payload
+
+
+async def verify_super_admin_access(x_super_admin_key: str = Header(..., alias="X-Super-Admin-Key")):
+    """Verifica la API key del super admin."""
+    if x_super_admin_key != settings.SUPER_ADMIN_API_KEY:
+        raise HTTPException(status_code=403, detail="Invalid super admin API key")
+    
+    return {"verified": True}
 
 
 @router.get("")
