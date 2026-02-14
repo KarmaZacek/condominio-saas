@@ -1,27 +1,16 @@
 """
 Router principal del módulo Super Admin.
+Combina todas las sub-rutas de administración.
 """
 
 from fastapi import APIRouter
 from app.api.routes.super_admin import dashboard, condominiums, users
 
-router = APIRouter(prefix="/super-admin", tags=["Super Admin"])
+router = APIRouter()
 
 # Incluir sub-routers
-router.include_router(
-    dashboard.router,
-    prefix="/dashboard",
-    tags=["Super Admin - Dashboard"]
-)
+router.include_router(dashboard.router)
+router.include_router(condominiums.router)
+router.include_router(users.router)
 
-router.include_router(
-    condominiums.router,
-    prefix="/condominiums",
-    tags=["Super Admin - Condominiums"]
-)
-
-router.include_router(
-    users.router,
-    prefix="/users",
-    tags=["Super Admin - Users"]
-)
+__all__ = ["router"]

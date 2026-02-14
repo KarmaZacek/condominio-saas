@@ -12,7 +12,7 @@ from app.core.config import settings
 from app.core.database import get_db
 
 
-router = APIRouter(prefix="/super-admin/users", tags=["Super Admin - Users"])
+router = APIRouter(prefix="/users", tags=["Super Admin - Users"])
 
 
 async def get_current_super_admin(authorization: str = Header(...)):
