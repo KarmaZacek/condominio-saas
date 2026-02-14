@@ -1,13 +1,27 @@
 """
-Rutas de Super Admin.
-
-Importa y registra todos los routers de super admin.
+Router principal del módulo Super Admin.
 """
+
 from fastapi import APIRouter
-from app.api.routes.super_admin import dashboard, condominiums
+from app.api.routes.super_admin import dashboard, condominiums, users
 
-router = APIRouter()
+router = APIRouter(prefix="/super-admin", tags=["Super Admin"])
 
-# Registrar routers
-router.include_router(dashboard.router)
-router.include_router(condominiums.router)
+# Incluir sub-routers
+router.include_router(
+    dashboard.router,
+    prefix="/dashboard",
+    tags=["Super Admin - Dashboard"]
+)
+
+router.include_router(
+    condominiums.router,
+    prefix="/condominiums",
+    tags=["Super Admin - Condominiums"]
+)
+
+router.include_router(
+    users.router,
+    prefix="/users",
+    tags=["Super Admin - Users"]
+)
