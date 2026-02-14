@@ -177,7 +177,7 @@ class SuperAdminCondominiumService:
             total_units=total_units,
             total_transactions=total_transactions,
             created_at=condo.created_at,
-            updated_at=condo.updated_at
+            updated_at=getattr(condo, 'updated_at', None)
         )
     
     async def update_condominium(
