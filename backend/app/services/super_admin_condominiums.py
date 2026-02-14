@@ -112,7 +112,7 @@ class SuperAdminCondominiumService:
             items.append(CondominiumListItem(
                 id=str(condo.id),
                 name=condo.name,
-                slug=condo.slug,
+                slug=getattr(condo, 'slug', None),  # Slug opcional
                 plan_type=condo.plan_type,
                 is_active=condo.is_active,
                 is_setup_completed=condo.is_setup_completed,
@@ -164,7 +164,7 @@ class SuperAdminCondominiumService:
         return CondominiumDetail(
             id=str(condo.id),
             name=condo.name,
-            slug=condo.slug,
+            slug=getattr(condo, 'slug', None),  # Slug opcional
             address=condo.address,
             phone=condo.phone,
             email=condo.email,
