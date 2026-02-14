@@ -12,8 +12,8 @@ import string
 
 from app.core.database import get_db
 from app.models.models import User, Condominium, Unit
-from app.core.exceptions import NotFoundException
 from app.core.security import get_password_hash
+from fastapi import HTTPException
 
 
 class SuperAdminUserService:
@@ -149,7 +149,7 @@ class SuperAdminUserService:
             Dict con información completa del usuario
             
         Raises:
-            NotFoundException: Si el usuario no existe
+            HTTPException: Si el usuario no existe (404)
         """
         async with get_db() as db:
             query = (
@@ -167,7 +167,7 @@ class SuperAdminUserService:
             row = result.first()
             
             if not row:
-                raise NotFoundException("Usuario no encontrado")
+                raise HTTPException(status_code=404, detail="Usuario no encontrado")
             
             user = row[0]
             condo_name = row[1]
@@ -205,7 +205,7 @@ class SuperAdminUserService:
             Dict con información actualizada del usuario
             
         Raises:
-            NotFoundException: Si el usuario no existe
+            HTTPException: Si el usuario no existe (404)
         """
         async with get_db() as db:
             # Buscar usuario
@@ -215,7 +215,7 @@ class SuperAdminUserService:
             user = result.scalar_one_or_none()
             
             if not user:
-                raise NotFoundException("Usuario no encontrado")
+                raise HTTPException(status_code=404, detail="Usuario no encontrado")
             
             # No permitir desactivar super admins
             if user.role == "super_admin":
@@ -242,7 +242,7 @@ class SuperAdminUserService:
             Dict con nueva contraseña temporal
             
         Raises:
-            NotFoundException: Si el usuario no existe
+            HTTPException: Si el usuario no existe (404)
         """
         async with get_db() as db:
             # Buscar usuario
@@ -252,7 +252,7 @@ class SuperAdminUserService:
             user = result.scalar_one_or_none()
             
             if not user:
-                raise NotFoundException("Usuario no encontrado")
+                raise HTTPException(status_code=404, detail="Usuario no encontrado")
             
             # No permitir reset de super admins
             if user.role == "super_admin":
