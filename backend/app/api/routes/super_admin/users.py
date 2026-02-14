@@ -38,7 +38,7 @@ async def get_current_super_admin(authorization: str = Header(...)):
 
 async def verify_super_admin_access(x_super_admin_key: str = Header(..., alias="X-Super-Admin-Key")):
     """Verifica la API key del super admin."""
-    if x_super_admin_key != settings.SUPER_ADMIN_API_KEY:
+    if x_super_admin_key != settings.SUPER_ADMIN_KEY:
         raise HTTPException(status_code=403, detail="Invalid super admin API key")
     
     return {"verified": True}
