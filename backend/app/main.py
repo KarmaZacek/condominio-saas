@@ -216,7 +216,7 @@ app.include_router(auth.router, prefix="/v1")
 app.include_router(users.router, prefix="/v1")
 app.include_router(units.router, prefix="/v1")
 app.include_router(condominiums.router, prefix="/v1/condominiums", tags=["condominiums"])
-app.include_router(super_admin.router, prefix="/v1")
+app.include_router(super_admin.router, prefix="/v1/super-admin", tags=["Super Admin"])
 app.include_router(categories.router, prefix="/v1")
 app.include_router(transactions.router, prefix="/v1")
 app.include_router(reports.router, prefix="/v1")
@@ -224,7 +224,6 @@ app.include_router(audit.router, prefix="/v1")
 app.include_router(financial_status_router, prefix="/v1")
 app.include_router(admin_router) # ✅ Incluimos la ruta de administración manual
 app.include_router(invitations.router, prefix="/v1")
-app.include_router(super_admin_router, prefix="/v1")
 
 # Servir archivos estáticos
 UPLOAD_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "uploads")
