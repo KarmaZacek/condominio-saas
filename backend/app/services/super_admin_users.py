@@ -11,9 +11,9 @@ import secrets
 import string
 
 from app.core.database import get_db
-from app.models.user import User
-from app.models.condominium import Condominium
-from app.models.unit import Unit
+from app.models.users import User
+from app.models.condominiums import Condominium
+from app.models.units import Unit
 from app.core.exceptions import NotFoundException
 from app.core.security import get_password_hash
 
