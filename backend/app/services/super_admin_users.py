@@ -12,7 +12,7 @@ import string
 
 from app.core.database import get_db
 from app.models.models import User, Condominium, Unit
-from app.core.security import get_password_hash
+from app.core.security import hash_password
 from fastapi import HTTPException
 
 
@@ -263,7 +263,7 @@ class SuperAdminUserService:
             temp_password = ''.join(secrets.choice(alphabet) for _ in range(12))
             
             # Actualizar contraseña
-            user.password_hash = get_password_hash(temp_password)
+            user.password_hash = hash_password(temp_password)
             user.updated_at = datetime.now(timezone.utc)
             user.failed_login_attempts = 0
             user.locked_until = None
