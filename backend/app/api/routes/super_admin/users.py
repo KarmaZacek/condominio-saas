@@ -1,21 +1,22 @@
 """
-Rutas de API para gestión de usuarios del Super Admin.
+Rutas de API para gestión de usuarios por Super Admin.
 """
 
 from fastapi import APIRouter, Depends, Query, Header, HTTPException
 from typing import Optional
 from jose import jwt, JWTError
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.services.super_admin_users import SuperAdminUserService
 from app.core.config import settings
+from app.core.database import get_db
 
 
-router = APIRouter()
+router = APIRouter(prefix="/super-admin/users", tags=["Super Admin - Users"])
 
 
-# Dependencias de autenticación
 async def get_current_super_admin(authorization: str = Header(...)):
-    """Verifica el token JWT del super admin."""
+    """Verifica que el token JWT sea de un super admin."""
     if not authorization.startswith("Bearer "):
         raise HTTPException(status_code=401, detail="Invalid authorization header")
     
@@ -48,25 +49,26 @@ async def verify_super_admin_access(x_super_admin_key: str = Header(..., alias="
 async def list_users(
     search: Optional[str] = Query(None, description="Buscar por nombre o email"),
     condominium_id: Optional[str] = Query(None, description="Filtrar por condominio"),
-    role: Optional[str] = Query(None, description="Filtrar por rol"),
+    role: Optional[str] = Query(None, description="Filtrar por rol (ADMIN, RESIDENT, etc.)"),
     is_active: Optional[bool] = Query(None, description="Filtrar por estado activo"),
     page: int = Query(1, ge=1, description="Número de página"),
     limit: int = Query(50, ge=1, le=100, description="Resultados por página"),
     sort_by: str = Query("created_at", description="Campo para ordenar"),
     sort_order: str = Query("desc", regex="^(asc|desc)$", description="Orden"),
     current_user: dict = Depends(get_current_super_admin),
-    _: dict = Depends(verify_super_admin_access)
+    _: dict = Depends(verify_super_admin_access),
+    db: AsyncSession = Depends(get_db)
 ):
     """
-    Lista todos los usuarios del sistema con filtros.
+    Lista todos los usuarios del sistema con filtros avanzados.
     
-    Requiere autenticación de Super Admin.
+    Requiere autenticación de Super Admin (JWT + API Key).
     
     **Filtros disponibles:**
-    - `search`: Buscar por nombre o email (case-insensitive)
+    - `search`: Búsqueda por nombre o email
     - `condominium_id`: Filtrar por condominio específico
-    - `role`: Filtrar por rol (ADMIN, RESIDENT, ACCOUNTANT)
-    - `is_active`: Filtrar por estado activo (true/false)
+    - `role`: Filtrar por rol (ADMIN, RESIDENT, ACCOUNTANT, etc.)
+    - `is_active`: true/false para filtrar por estado
     
     **Ordenamiento:**
     - `sort_by`: created_at, full_name, email, last_login
@@ -78,6 +80,7 @@ async def list_users(
     """
     service = SuperAdminUserService()
     return await service.list_users(
+        db=db,
         search=search,
         condominium_id=condominium_id,
         role=role,
@@ -93,7 +96,8 @@ async def list_users(
 async def get_user(
     user_id: str,
     current_user: dict = Depends(get_current_super_admin),
-    _: dict = Depends(verify_super_admin_access)
+    _: dict = Depends(verify_super_admin_access),
+    db: AsyncSession = Depends(get_db)
 ):
     """
     Obtiene los detalles completos de un usuario específico.
@@ -108,55 +112,50 @@ async def get_user(
     - Historial de acceso
     """
     service = SuperAdminUserService()
-    return await service.get_user(user_id)
+    return await service.get_user(db, user_id)
 
 
 @router.post("/{user_id}/toggle-status")
 async def toggle_user_status(
     user_id: str,
     current_user: dict = Depends(get_current_super_admin),
-    _: dict = Depends(verify_super_admin_access)
+    _: dict = Depends(verify_super_admin_access),
+    db: AsyncSession = Depends(get_db)
 ):
     """
     Activa o desactiva un usuario.
     
     Requiere autenticación de Super Admin.
     
+    **Acción:**
     - Si el usuario está activo, lo desactiva
     - Si el usuario está inactivo, lo activa
-    
-    **Restricciones:**
-    - No se pueden desactivar Super Admins
+    - NO afecta a super admins (protegidos)
     """
     service = SuperAdminUserService()
-    return await service.toggle_user_status(user_id)
+    return await service.toggle_user_status(db, user_id)
 
 
 @router.post("/{user_id}/reset-password")
 async def reset_user_password(
     user_id: str,
     current_user: dict = Depends(get_current_super_admin),
-    _: dict = Depends(verify_super_admin_access)
+    _: dict = Depends(verify_super_admin_access),
+    db: AsyncSession = Depends(get_db)
 ):
     """
-    Resetea la contraseña de un usuario y genera una contraseña temporal.
+    Resetea la contraseña de un usuario.
     
     Requiere autenticación de Super Admin.
     
-    **Proceso:**
-    1. Genera contraseña temporal aleatoria (12 caracteres)
-    2. Actualiza la contraseña del usuario
-    3. Resetea intentos de login fallidos
-    4. Desbloquea la cuenta si estaba bloqueada
+    **Acción:**
+    - Genera una contraseña temporal segura de 12 caracteres
+    - Desbloquea la cuenta (resetea intentos fallidos)
+    - Retorna la contraseña temporal para compartir con el usuario
+    - NO afecta a super admins (protegidos)
     
-    **Retorna:**
-    - Usuario
-    - Contraseña temporal (debe ser comunicada al usuario de forma segura)
-    
-    **Restricciones:**
-    - No se pueden resetear contraseñas de Super Admins
-    
-    **Nota:** La contraseña temporal debe ser cambiada por el usuario en su próximo login.
+    **Seguridad:**
+    La contraseña temporal debe ser compartida de forma segura con el usuario.
     """
     service = SuperAdminUserService()
-    return await service.reset_user_password(user_id)
+    return await service.reset_user_password(db, user_id)
