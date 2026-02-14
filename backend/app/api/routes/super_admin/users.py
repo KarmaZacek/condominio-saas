@@ -4,9 +4,9 @@ Rutas de API para gestión de usuarios del Super Admin.
 
 from fastapi import APIRouter, Depends, Query, Header, HTTPException
 from typing import Optional
+from jose import jwt, JWTError
 
 from app.services.super_admin_users import SuperAdminUserService
-from app.core.security import verify_token
 from app.core.config import settings
 
 
@@ -20,9 +20,14 @@ async def get_current_super_admin(authorization: str = Header(...)):
         raise HTTPException(status_code=401, detail="Invalid authorization header")
     
     token = authorization.replace("Bearer ", "")
-    payload = verify_token(token)
     
-    if not payload:
+    try:
+        payload = jwt.decode(
+            token,
+            settings.JWT_SECRET_KEY,
+            algorithms=[settings.JWT_ALGORITHM]
+        )
+    except JWTError:
         raise HTTPException(status_code=401, detail="Invalid or expired token")
     
     if payload.get("role") != "super_admin":
