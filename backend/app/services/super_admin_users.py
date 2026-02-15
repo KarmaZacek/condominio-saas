@@ -152,19 +152,19 @@ class SuperAdminUserService:
         """
         # Query con joins para obtener info relacionada
         query = (
-            select(User)
-            .options(
-                selectinload(User.condominium),
-                selectinload(User.unit)
-            )
+            select(User, Condominium.name.label("condominium_name"), Unit.unit_number)
+            .outerjoin(Condominium, User.condominium_id == Condominium.id)
+            .outerjoin(Unit, User.unit_id == Unit.id)
             .where(User.id == user_id)
         )
         
         result = await db.execute(query)
-        user = result.scalar_one_or_none()
+        row = result.one_or_none()
         
-        if not user:
+        if not row:
             raise HTTPException(status_code=404, detail="Usuario no encontrado")
+        
+        user, condominium_name, unit_number = row
         
         # Prevenir acceso a super admins
         if user.role == "super_admin":
@@ -181,16 +181,10 @@ class SuperAdminUserService:
             "email_verified": user.email_verified,
             "failed_login_attempts": user.failed_login_attempts,
             "locked_until": user.locked_until.isoformat() if user.locked_until else None,
-            "condominium": {
-                "id": str(user.condominium.id),
-                "name": user.condominium.name,
-                "address": user.condominium.address
-            } if user.condominium else None,
-            "unit": {
-                "id": str(user.unit.id),
-                "unit_number": user.unit.unit_number,
-                "floor": user.unit.floor
-            } if user.unit else None,
+            "condominium_id": str(user.condominium_id) if user.condominium_id else None,
+            "condominium_name": condominium_name,
+            "unit_id": str(user.unit_id) if user.unit_id else None,
+            "unit_number": unit_number,
             "created_at": user.created_at.isoformat(),
             "updated_at": user.updated_at.isoformat(),
             "last_login": user.last_login.isoformat() if user.last_login else None
